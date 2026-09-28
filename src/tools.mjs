@@ -1,0 +1,46 @@
+import { z } from 'zod';
+import { Adapters } from './adapters.mjs';
+import { context, submit, exportMarkdown } from './pipeline.mjs';
+const stages=z.enum(['editor','research','opinion','angles','write','review']);
+const id=z.string().min(1);
+const source=z.object({platform:z.string().min(1),kind:z.enum(['article','post','comment','hotlist']),title:z.string().default(''),body:z.string().max(100000),url:z.string().default(''),external_id:z.string().optional(),published_at:z.string().optional(),metadata:z.record(z.unknown()).optional()});
+export const toolDefinitions={
+  list_topics:{description:'列出热点、工序、初筛等级和素材数。无评分显示 null，不代表 B 级。',schema:{}},
+  create_topic:{description:'人工/Agent 建立一个选题。',schema:{title:z.string().min(1).max(300)}},
+  get_topic:{description:'查看一个话题全部素材、工序产物、引用、版本与运行事件。',schema:{topic_id:id}},
+  discover:{description:'从 bilibili/tieba/reddit/trendradar/rss:配置ID/newsnow:榜单ID 导入最多 50 个热点。上游失败会保留错误记录。',schema:{source:z.string(),limit:z.number().int().min(1).max(50).default(12)}},
+  search_posts:{description:'按词搜索 B站、贴吧、Reddit。小红书返回浏览器搜索入口与导入指引，不伪装匿名搜索能力。',schema:{platform:z.enum(['bilibili','tieba','reddit','xiaohongshu']),query:z.string().min(1).max(200),limit:z.number().int().min(1).max(20).default(8)}},
+  collect_url:{description:'采集一条公开视频/帖子/文章链接到话题。评论采样有边界；登录/受阻会返回 partial 或失败。',schema:{topic_id:id,url:z.string().url()}},
+  import_sources:{description:'将实际读到的网页正文/评论导入。必须保留 URL 与采样说明，不得合成网友评论。添加资料会使旧分析失效。',schema:{topic_id:id,sources:z.array(source).min(1).max(50)}},
+  get_task:{description:'读取下一步（或指定工序）的资料、提示和 JSON 输出范例；不领取写入权。',schema:{topic_id:id,stage:stages.optional()}},
+  claim_task:{description:'为当前下一工序领取 20 分钟租约，返回 claim_id、basis 和完整资料。一个话题同时只允许一个 Agent 写入。',schema:{topic_id:id,actor:z.string().min(1).max(150)}},
+  submit_result:{description:'提交已领取工序的结构化结果。校验来源、引用、上游版本、租约；自动使下游旧结果失效。actor 可填 Agent/model 标识。',schema:{topic_id:id,stage:stages,actor:z.string().min(1),basis:id,claim_id:id,content:z.record(z.unknown())}},
+  release_task:{description:'释放任务租约；建议失败、资料不足或需补充来源时先释放。',schema:{claim_id:id,reason:z.string().optional()}},
+  rerun_stage:{description:'明确重跑某工序并使其下游失效，旧版本仍保留；不要在用户未要求时覆盖人工修改。',schema:{topic_id:id,stage:stages}},
+  select_angle:{description:'选定已有切入角度并将写作/审稿标为待重做。',schema:{topic_id:id,angle_id:id}},
+  merge_topics:{description:'确认两个条目是同一事件后合并到目标；保留原话题档案，目标重新分析。不能仅凭相似关键词合并。',schema:{from:id,to:id}},
+  export_draft:{description:'导出带引用的 Markdown 审核稿。未人工确认会带待审核标记；没有发布能力。',schema:{topic_id:id}},
+};
+export async function tracked(store,kind,topic,input,fn){
+  const job=store.job(kind,topic,input);try{const r=await fn();store.finishJob(job,r);return {job_id:job,...r};}catch(e){store.finishJob(job,null,e.message);throw e;}
+}
+export async function callTool(store,name,args={}){
+  const def=toolDefinitions[name];if(!def)throw new Error('未知工具');const a=z.object(def.schema).strict().parse(args);const adapters=new Adapters(store);
+  switch(name){
+    case 'list_topics':return {topics:store.list()};
+    case 'create_topic':return store.createTopic(a.title);
+    case 'get_topic':return store.detail(a.topic_id);
+    case 'discover':return tracked(store,name,null,a,()=>adapters.discover(a.source,a.limit));
+    case 'search_posts':return tracked(store,name,null,a,()=>adapters.search(a.platform,a.query,a.limit));
+    case 'collect_url':return tracked(store,name,a.topic_id,a,()=>adapters.collect(a.topic_id,a.url));
+    case 'import_sources':return {sources:a.sources.map(s=>store.addSource(a.topic_id,{...s,metadata:{...s.metadata,imported:true}}))};
+    case 'get_task':return context(store,a.topic_id,a.stage);
+    case 'claim_task':{const stage=store.next(a.topic_id);if(['collect','done','paused'].includes(stage))throw new Error(`当前状态 ${stage} 无可领取 AI 工序`);const claim=store.claim(a.topic_id,stage,a.actor);return {claim_id:claim.id,basis:claim.basis,expires_at:claim.expires_at,task:context(store,a.topic_id,stage)};}
+    case 'submit_result':return submit(store,a);
+    case 'release_task':store.release(a.claim_id,a.reason);return {released:true};
+    case 'rerun_stage':store.reset(a.topic_id,a.stage);return {next:store.next(a.topic_id)};
+    case 'select_angle':store.selectAngle(a.topic_id,a.angle_id);return {selected:a.angle_id};
+    case 'merge_topics':return store.merge(a.from,a.to);
+    case 'export_draft':return {markdown:exportMarkdown(store,a.topic_id)};
+  }
+}

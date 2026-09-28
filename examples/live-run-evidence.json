@@ -1,0 +1,72 @@
+{
+  "provenance": "本次 Codex 会话读取真实采集的 B站视频元数据与三条评论后编写；通过 MCP 逐步提交，不是内置生成模板。仅验证资料与工序流转，未观看视频，未代用户人工确认或发布。",
+  "started_at": "2026-09-28T07:23:02.860Z",
+  "topic_id": "t_5224cb92-9bc",
+  "steps": [
+    {
+      "stage": "editor",
+      "artifact_id": "a_a66ab639-ab8",
+      "version": 1
+    },
+    {
+      "stage": "research",
+      "artifact_id": "a_424cc1c4-fc2",
+      "version": 1
+    },
+    {
+      "stage": "opinion",
+      "artifact_id": "a_9177e19d-d55",
+      "version": 1
+    },
+    {
+      "stage": "angles",
+      "artifact_id": "a_3da994a9-3bc",
+      "version": 1
+    },
+    {
+      "stage": "write",
+      "artifact_id": "a_7e21986d-706",
+      "version": 1
+    },
+    {
+      "stage": "review",
+      "artifact_id": "a_9c5a1b59-147",
+      "version": 1
+    }
+  ],
+  "final_state": "done",
+  "human_approved": false,
+  "sources": [
+    {
+      "id": "s_d6d48672-7e0",
+      "url": "https://www.bilibili.com/video/BV1Hxah6BEGy",
+      "kind": "hotlist",
+      "raw_hash": "ff0f6957ba5ebd9769109d962b215092ff719acc3c011b5cbc5669f693513a5e"
+    },
+    {
+      "id": "s_df2761ed-9d0",
+      "url": "https://www.bilibili.com/video/BV1Hxah6BEGy",
+      "kind": "post",
+      "raw_hash": "e45be8114b1f47cc8f0712f0dc5005004a18896984e4680192419aaa5ab3a944"
+    },
+    {
+      "id": "s_a955974b-c50",
+      "url": "https://www.bilibili.com/video/BV1Hxah6BEGy",
+      "kind": "comment",
+      "raw_hash": "7e087fd74b2fad4cd1abadab48b77f840a5bedeeef72849ceb75ca04149aa625"
+    },
+    {
+      "id": "s_f8d5e548-e69",
+      "url": "https://www.bilibili.com/video/BV1Hxah6BEGy",
+      "kind": "comment",
+      "raw_hash": "7e087fd74b2fad4cd1abadab48b77f840a5bedeeef72849ceb75ca04149aa625"
+    },
+    {
+      "id": "s_44d6d1e1-03f",
+      "url": "https://www.bilibili.com/video/BV1Hxah6BEGy",
+      "kind": "comment",
+      "raw_hash": "7e087fd74b2fad4cd1abadab48b77f840a5bedeeef72849ceb75ca04149aa625"
+    }
+  ],
+  "finished_at": "2026-09-28T07:23:02.944Z"
+}

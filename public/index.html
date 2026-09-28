@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>热点工坊 · Hotdesk</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<header><div class="brand"><span class="logo">H</span><div><strong>热点工坊</strong><small>HOTDESK / LOCAL EDITION</small></div><span class="pill">流程预览版 0.1</span></div><div class="header-actions"><span id="connection">连接中…</span><button id="agent-help" class="quiet">Agent 接入</button><button id="settings" class="quiet">数据源设置</button></div></header>
+<main>
+<aside><div class="section-title"><h2>热点雷达</h2><span id="topic-count" class="pill">0</span></div><p class="muted">先把流程跑通，再找到你的方向。</p>
+<div class="row"><select id="discovery-source" aria-label="热榜来源"><option value="bilibili">B站 · 热门</option><option value="tieba">贴吧 · 热议</option><option value="reddit">Reddit · 热门</option><option value="trendradar">TrendRadar · 本地库</option><option value="newsnow:baidu">NewsNow · 百度</option></select><button id="discover">发现热点</button></div>
+<div class="row"><input id="new-title" placeholder="也可以直接输入一个选题" aria-label="新选题"><button id="create" class="quiet">＋</button></div>
+<input id="filter" class="full" placeholder="筛选当前热点…" aria-label="筛选热点">
+<div id="topics" class="topics"></div></aside>
+<section id="workspace"><div class="welcome"><span class="eyebrow">从一个热点开始</span><h1>让每一步生产<br>都看得见。</h1><p>发现 → 采集 → 初筛 → 查证 → 讨论 → 角度 → 写作 → 审核</p><p class="muted">左侧选择榜单获取真实热点，或输入你的第一个选题。<br>AI 工序由你正在使用的 Agent 执行，也可接独立模型。</p><div class="intro-cards"><div><b>01 / 素材留底</b><p>原始响应与引用可追溯</p></div><div><b>02 / 随时接手</b><p>看结果、改角度、单步重跑</p></div><div><b>03 / 人工收尾</b><p>审核导出，不自动发布</p></div></div></div></section>
+</main>
+<footer><div class="section-title"><h2>运行记录</h2><span class="muted">每 4 秒同步 · 失败不会被当作完成</span></div><div id="jobs"></div></footer>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="modal"><div class="section-title"><h2 id="modal-title"></h2><button id="close-modal" class="quiet">关闭</button></div><div id="modal-body"></div></dialog>
+</body></html>
