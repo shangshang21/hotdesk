@@ -12,7 +12,7 @@
     "cli": "node --env-file-if-exists=.env src/cli.mjs",
     "mcp": "node --env-file-if-exists=.env src/mcp.mjs",
     "setup:agents": "node scripts/setup-agents.mjs",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --experimental-test-module-mocks --test tests/*.test.mjs",
     "check": "node --check src/server.mjs && node --check public/app.js"
   },
   "dependencies": {

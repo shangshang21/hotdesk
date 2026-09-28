@@ -83,7 +83,7 @@ test('营销稿规则：单平台可成稿，分析段免引用，网友说法�
 });
 test('网页正文提取：Readability 去导航与推荐，尾部声明截断',()=>{
   const nav='<nav>'+'首页 新闻 体育 娱乐 '.repeat(30)+'</nav>',rec='<aside><h3>为你推荐</h3>'+'<p>无关推荐文章标题</p>'.repeat(20)+'</aside>';
-  const html=`<html><head><title>测试新闻</title></head><body>${nav}<article><h1>测试新闻</h1><p>社区阅览室将于十月一日起延长开放至晚上九点，方便上班族下班后阅读。</p><p>工作人员表示，延长时段内借还书服务照常。特别声明：以上内容为自媒体用户上传。</p></article>${rec}</body></html>`;
+  const html=`<html><head><title>测试新闻</title></head><body>${nav}<article><h1>测试新闻</h1><p>社区阅览室将于十月一日起延长开放至晚上九点，方便上班族下班后阅读。</p><p>工作人员表示，延长时段内借还书服务照常。</p><p>特别声明：以上内容为自媒体用户上传。</p></article>${rec}</body></html>`;
   const [row]=parsePage(html,'https://example.org/news');assert.equal(row.metadata.extractor,'readability');
   assert.match(row.body,/延长开放至晚上九点/);assert.doesNotMatch(row.body,/首页 新闻|无关推荐|特别声明/);
 });

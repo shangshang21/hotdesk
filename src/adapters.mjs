@@ -17,9 +17,9 @@ export async function fetchRaw(store,url,{allowLocal=false,headers={}}={}) {
   for(let redirects=0;redirects<4;redirects++) {
     const u=new URL(current),host=u.hostname.replace(/^\[|\]$/g,'');
     const addresses=isIP(host)?[{address:host}]:await lookup(host,{all:true});
-    // 198.18.0.0/15 is the fake-IP range used by proxy TUN modes (Clash/Surge); the proxy resolves the real host remotely.
-    const viaFakeIP=addresses.some(a=>/^198\.1[89]\./.test(a.address));
-    if(!allowLocal && !viaFakeIP && addresses.some(a=>blockedIP(a.address)))throw new Error('公共采集不允许访问内网地址；本地 RSSHub 请在配置中显式启用 allowLocal');
+    // Proxy TUN fake-IP addresses (198.18.0.0/15) are allowed by blockedIP,
+    // but must never exempt other addresses returned by the same DNS lookup.
+    if(!allowLocal && addresses.some(a=>blockedIP(a.address)))throw new Error('公共采集不允许访问内网地址；本地 RSSHub 请在配置中显式启用 allowLocal');
     const delay=Math.max(0,(waits.get(u.host)||0)-Date.now()); if(delay)await new Promise(r=>setTimeout(r,delay));waits.set(u.host,Date.now()+1200);
     const r=await fetch(current,{redirect:'manual',signal:AbortSignal.timeout(20000),headers:{'User-Agent':'HotdeskLocal/0.1 (personal research; bounded sampling)','Accept':'application/json,text/html,application/rss+xml,application/atom+xml;q=0.9',...headers}});
     if(r.status>=300&&r.status<400&&r.headers.get('location')){const dest=new URL(r.headers.get('location'),current);if(dest.origin!==u.origin&&headers.Authorization)throw new Error('拒绝向其他站点转发认证信息');current=dest.href;continue;}
@@ -45,14 +45,33 @@ export function parseRSS(body,platform='rss') {
   }).filter(i=>i.title&&i.url);
 }
 // Article text via Mozilla Readability (Firefox Reader View); falls back to raw page text.
+const PAGE_CHROME='script,style,nav,aside,footer,noscript,svg,form';
+function paragraphText($,root){
+  root.find('br').replaceWith('\n');
+  root.find('p,div,section,article,main,blockquote,li,h1,h2,h3,h4,h5,h6').each((_,el)=>{$(el).prepend('\n').append('\n');});
+  return root.text().split(/\r?\n/).map(normalize).filter(Boolean).join('\n');
+}
 function readable(body){
-  let text='';try{const {document}=parseHTML(body);text=normalize(new Readability(document,{charThreshold:40}).parse()?.textContent);}catch{}
+  let text='';try{
+    const {document}=parseHTML(body);document.querySelectorAll(PAGE_CHROME).forEach(el=>el.remove());
+    const article=new Readability(document,{charThreshold:40}).parse();
+    if(article?.content){const $=load(article.content);text=paragraphText($,$('body'));}
+  }catch{}
   return text.length>=40?text:'';
 }
-function fallbackText($){$('script,style,nav,footer,header,noscript,svg,form').remove();return normalize($('article').first().text()||$('main').first().text()||$('body').text());}
-// Cut recommendation lists and platform disclaimers that follow the article body.
-const TAIL=/(为你推荐|相关推荐|热点推荐|猜你喜欢|相关阅读|延伸阅读|特别声明[:：]|声明[:：]本文|Notice: The content above|\[责任编辑)/;
-export function trimTail(text){const m=text.match(TAIL);return m&&m.index>=40?text.slice(0,m.index).trim():text;}
+function fallbackText($){
+  $(PAGE_CHROME).remove();
+  const root=$('article').first().text().trim()?$('article').first():$('main').first().text().trim()?$('main').first():$('body');
+  return paragraphText($,root);
+}
+// Remove only recognized standalone boilerplate at the end. Recommendation
+// words may be legitimate reporting or headings; never cut the body at them.
+const PLATFORM_TAIL=/^(?:特别声明[:：]\s*以上内容为自媒体用户上传[。.]?|\[责任编辑[:：][^\]\r\n]{1,80}\])$/;
+export function trimTail(text){
+  const paragraphs=String(text).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  while(paragraphs.length&&PLATFORM_TAIL.test(paragraphs.at(-1)))paragraphs.pop();
+  return paragraphs.join('\n');
+}
 export function parsePage(body,url) {
   const $=load(body);const host=new URL(url).hostname;
   const title=normalize($('meta[property="og:title"]').attr('content')||$('title').text());
@@ -66,7 +85,7 @@ export function parsePage(body,url) {
     if(!text||text.length<20||/小红书是一个|小红书是年轻人|你访问的页面不见了|请.*登录/.test(text)||/小红书.*你的生活指南/.test(title))return [];
     return [{platform:'xiaohongshu',kind:'post',title,body:text,url,metadata:{sample:'公开分享页正文；未获取评论',comments_available:false}}];
   }
-  const article=readable(body),text=trimTail(article||fallbackText($));
+  const article=readable(body),text=normalize(trimTail(article||fallbackText($)));
   return text.length>=40?[{platform:'web',kind:'article',title:title||url,body:text.slice(0,60000),url,metadata:{extractor:article?'readability':'fallback'}}]:[];
 }
 export class Adapters {
