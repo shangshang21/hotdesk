@@ -1,4 +1,6 @@
 import { load } from 'cheerio';
+import { Readability } from '@mozilla/readability';
+import { parseHTML } from 'linkedom';
 import { XMLParser } from 'fast-xml-parser';
 import { DatabaseSync } from 'node:sqlite';
 import { lookup } from 'node:dns/promises';
@@ -42,6 +44,15 @@ export function parseRSS(body,platform='rss') {
     return {title:normalize(val(item.title)),url:url?canonical(url):'',body:load(val(item.description||item.summary||item.content||item['content:encoded'])).text().trim(),published_at:val(item.pubDate||item.published||item.updated)||null,platform,kind:'article',external_id:val(item.guid||item.id)||undefined};
   }).filter(i=>i.title&&i.url);
 }
+// Article text via Mozilla Readability (Firefox Reader View); falls back to raw page text.
+function readable(body){
+  let text='';try{const {document}=parseHTML(body);text=normalize(new Readability(document,{charThreshold:40}).parse()?.textContent);}catch{}
+  return text.length>=40?text:'';
+}
+function fallbackText($){$('script,style,nav,footer,header,noscript,svg,form').remove();return normalize($('article').first().text()||$('main').first().text()||$('body').text());}
+// Cut recommendation lists and platform disclaimers that follow the article body.
+const TAIL=/(为你推荐|相关推荐|热点推荐|猜你喜欢|相关阅读|延伸阅读|特别声明[:：]|声明[:：]本文|Notice: The content above|\[责任编辑)/;
+export function trimTail(text){const m=text.match(TAIL);return m&&m.index>=40?text.slice(0,m.index).trim():text;}
 export function parsePage(body,url) {
   const $=load(body);const host=new URL(url).hostname;
   const title=normalize($('meta[property="og:title"]').attr('content')||$('title').text());
@@ -55,9 +66,8 @@ export function parsePage(body,url) {
     if(!text||text.length<20||/小红书是一个|小红书是年轻人|你访问的页面不见了|请.*登录/.test(text)||/小红书.*你的生活指南/.test(title))return [];
     return [{platform:'xiaohongshu',kind:'post',title,body:text,url,metadata:{sample:'公开分享页正文；未获取评论',comments_available:false}}];
   }
-  $('script,style,nav,footer,header,noscript,svg,form').remove();
-  const text=normalize($('article').first().text()||$('main').first().text()||$('body').text());
-  return text.length>=40?[{platform:'web',kind:'article',title:title||url,body:text.slice(0,60000),url}]:[];
+  const article=readable(body),text=trimTail(article||fallbackText($));
+  return text.length>=40?[{platform:'web',kind:'article',title:title||url,body:text.slice(0,60000),url,metadata:{extractor:article?'readability':'fallback'}}]:[];
 }
 export class Adapters {
   constructor(store){this.store=store;}
