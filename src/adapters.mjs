@@ -68,6 +68,16 @@ export class Adapters {
       raw=await fetchRaw(this.store,'https://tieba.baidu.com/hottopic/browse/topicList');
       const list=json(raw).data?.bang_topic?.topic_list;if(!Array.isArray(list))throw new Error('贴吧热议榜格式已变化');
       items=list.slice(0,limit).map((v,i)=>({title:v.topic_name,url:v.topic_url.replaceAll('&amp;','&'),body:v.topic_desc,rank:v.idx_num||i+1,platform:'tieba',published_at:epoch(v.create_time),metadata:{reported_discuss_num:v.discuss_num,rank_type:'hot_topic_rank'}}));
+    }else if(source==='baidu'){
+      raw=await fetchRaw(this.store,'https://top.baidu.com/board?tab=realtime');
+      const $=load(raw.body);items=[];
+      $('.category-wrap_iQLoo').each((i,el)=>{
+        if(items.length>=limit)return;
+        const title=normalize($(el).find('.c-single-text-ellipsis').text());
+        const desc=normalize($(el).find('.hot-desc_1m_jR').text()).replace(/\s*查看更多>.*$/,'');
+        const url=`https://www.baidu.com/s?wd=${encodeURIComponent(title)}`;
+        if(title)items.push({title,url,body:desc,rank:i+1,platform:'baidu',metadata:{rank_type:'baidu_realtime_rank'}});
+      });
     }else if(source==='reddit'){
       raw=await this.redditRequest('/r/popular/hot',`limit=${limit}`);
       items=json(raw).data?.children?.filter(x=>x.kind==='t3').map((x,i)=>({title:x.data.title,url:`https://www.reddit.com${x.data.permalink}`,body:x.data.selftext||'',rank:i+1,platform:'reddit',published_at:epoch(x.data.created_utc),metadata:{score:x.data.score,num_comments:x.data.num_comments,rank_type:'hot_feed_order'}}));

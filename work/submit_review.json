@@ -1,0 +1,25 @@
+{
+  "topic_id": "t_c311b5f2-d0f",
+  "stage": "review",
+  "actor": "Antigravity-Agent",
+  "basis": "098dedf4aaea0f87ca3c054bfe01499e7c5987e37ece5a07a4d8edb51de75489",
+  "claim_id": "claim_3e6bc770-b85",
+  "content": {
+    "verdict": "pass",
+    "issues": [
+      {
+        "severity": "info",
+        "platform": "all",
+        "text": "成稿重点突出了4-0比分、第三局局点被逆转与两极舆论，所有事实均核对无误，无虚假捏造，待人工审核确认。",
+        "refs": ["F1", "F3"]
+      }
+    ],
+    "summary": "全面对照了亚运会官方战报与社交网络评论样本。三大平台稿件严格基于确认的4-0赛果、10-8领先失误逆转等客观事实展开，对粉丝护航与球迷批评进行了清晰归属与客观分析，引文链路完整有效，符合自媒体爆款合规标准。",
+    "checks": {
+      "facts": true,
+      "opinion_attribution": true,
+      "title_support": true,
+      "cross_platform_consistency": true
+    }
+  }
+}
