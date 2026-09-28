@@ -15,7 +15,9 @@ export async function fetchRaw(store,url,{allowLocal=false,headers={}}={}) {
   for(let redirects=0;redirects<4;redirects++) {
     const u=new URL(current),host=u.hostname.replace(/^\[|\]$/g,'');
     const addresses=isIP(host)?[{address:host}]:await lookup(host,{all:true});
-    if(!allowLocal && addresses.some(a=>blockedIP(a.address)))throw new Error('公共采集不允许访问内网地址；本地 RSSHub 请在配置中显式启用 allowLocal');
+    // 198.18.0.0/15 is the fake-IP range used by proxy TUN modes (Clash/Surge); the proxy resolves the real host remotely.
+    const viaFakeIP=addresses.some(a=>/^198\.1[89]\./.test(a.address));
+    if(!allowLocal && !viaFakeIP && addresses.some(a=>blockedIP(a.address)))throw new Error('公共采集不允许访问内网地址；本地 RSSHub 请在配置中显式启用 allowLocal');
     const delay=Math.max(0,(waits.get(u.host)||0)-Date.now()); if(delay)await new Promise(r=>setTimeout(r,delay));waits.set(u.host,Date.now()+1200);
     const r=await fetch(current,{redirect:'manual',signal:AbortSignal.timeout(20000),headers:{'User-Agent':'HotdeskLocal/0.1 (personal research; bounded sampling)','Accept':'application/json,text/html,application/rss+xml,application/atom+xml;q=0.9',...headers}});
     if(r.status>=300&&r.status<400&&r.headers.get('location')){const dest=new URL(r.headers.get('location'),current);if(dest.origin!==u.origin&&headers.Authorization)throw new Error('拒绝向其他站点转发认证信息');current=dest.href;continue;}
@@ -77,8 +79,8 @@ export class Adapters {
     }else if(source==='trendradar'){
       const path=this.store.setting('trendradar_path');if(!path)throw new Error('请先配置 TrendRadar 现有 news/*.db 路径');return this.importTrendRadar(path,limit);
     }else if(source.startsWith('newsnow:')){
-      const endpoint=this.store.setting('newsnow_base','https://newsnow.busiyi.world/api/s');const u=new URL(endpoint);u.searchParams.set('id',source.slice(8));
-      raw=await fetchRaw(this.store,u.href);const d=json(raw);if(!Array.isArray(d.items))throw new Error(`热榜返回 ${d.status||'未知格式'}`);
+      const endpoint=this.store.setting('newsnow_base','http://127.0.0.1:4444/api/s');const u=new URL(endpoint);u.searchParams.set('id',source.slice(8));
+      raw=await fetchRaw(this.store,u.href,{allowLocal:true}).catch(e=>{throw /ECONNREFUSED|fetch failed/.test(String(e?.cause?.code||e.message))?new Error(`连不上 NewsNow（${u.origin}）：请先运行 scripts/Start-NewsNow.ps1，或在数据源设置里改地址`):e;});const d=json(raw);if(!Array.isArray(d.items))throw new Error(`热榜返回 ${d.status||'未知格式'}`);
       items=d.items.slice(0,limit).map((v,i)=>({title:v.title,url:v.url,rank:i+1,platform:source.slice(8),body:'',observed_at:d.updatedTime?new Date(d.updatedTime).toISOString():now(),metadata:{upstream:'newsnow'}}));
     }else throw new Error('未知榜单源');
     if(!items?.length)throw new Error('未解析到条目；请检查来源或格式');

@@ -8,8 +8,8 @@ export const schemas={
   editor:z.object({grade:z.enum(['S','A','B']),reason:text,recommendation:z.enum(['research','observe','skip']),metrics:z.object({freshness:metric,growth:metric,controversy:metric,mass_interest:metric,finance_relevance:metric,tech_relevance:metric,saturation:metric}),missing:z.array(text)}),
   research:z.object({facts:z.array(z.object({id:z.string().min(1),claim:text,status:z.enum(['confirmed','disputed','unknown']),evidence:z.array(z.object({source_id:z.string(),quote:text})).max(10),reason:text})).max(50),gaps:z.array(text),as_of:text}),
   opinion:z.object({status:z.enum(['available','insufficient']),sample_note:text,focus:z.array(point),support:z.array(point),oppose:z.array(point),questions:z.array(point),keywords:z.array(z.string()).max(30),platform_differences:z.array(point),limitations:z.array(text)}),
-  angles:z.object({angles:z.array(z.object({id:z.string(),name:text,hook:text,audience_value:text,fact_ids:refs,opinion_ids:refs,titles:z.array(text).min(1).max(8),gaps:z.array(text)})).min(1).max(5),recommendation:text}),
-  write:z.object({angle_id:z.string(),drafts:z.array(z.object({platform:z.enum(['toutiao','penguin','baijiahao','weitoutiao','video60']),title:text,title_refs:refs,blocks:z.array(z.object({kind:z.enum(['fact','opinion','analysis','transition']),text,refs})).min(1).max(60)})).min(3).max(5),notes:z.array(text)}),
+  angles:z.object({angles:z.array(z.object({id:z.string(),name:text,hook:text,audience_value:text,fact_ids:refs,opinion_ids:refs,titles:z.array(text).min(1).max(20),gaps:z.array(text)})).min(1).max(5),recommendation:text}),
+  write:z.object({angle_id:z.string(),drafts:z.array(z.object({platform:z.enum(['toutiao','penguin','baijiahao','weitoutiao','video60']),title:text,title_refs:refs,blocks:z.array(z.object({kind:z.enum(['fact','opinion','analysis','transition']),text,refs})).min(1).max(60)})).min(1).max(5),notes:z.array(text)}),
   review:z.object({verdict:z.enum(['pass','revise','blocked']),issues:z.array(z.object({severity:z.enum(['info','warning','error']),platform:z.string(),text,refs})),summary:text,checks:z.object({facts:z.boolean(),opinion_attribution:z.boolean(),title_support:z.boolean(),cross_platform_consistency:z.boolean()})})
 };
 export const examples={
@@ -17,16 +17,16 @@ export const examples={
   research:{facts:[{id:'F1',claim:'一条有明确边界的事实主张',status:'confirmed',evidence:[{source_id:'s_实际编号',quote:'从原始素材逐字摘录的支持片段'}],reason:'证据如何支持该主张'}],gaps:[],as_of:now()},
   opinion:{status:'available',sample_note:'平台、帖子数、评论数、排序和时间范围',focus:[{id:'O1',text:'这一批评论中的讨论焦点',source_ids:['s_实际评论编号']}],support:[],oppose:[],questions:[],keywords:[],platform_differences:[],limitations:['采样不代表全部用户']},
   angles:{angles:[{id:'A1',name:'角度名称',hook:'读者为什么点开',audience_value:'读者关心什么',fact_ids:['F1'],opinion_ids:['O1'],titles:['标题候选一','标题候选二'],gaps:[]}],recommendation:'推荐理由'},
-  write:{angle_id:'A1',drafts:['toutiao','penguin','baijiahao'].map(platform=>({platform,title:'有资料支持的标题',title_refs:['F1'],blocks:[{kind:'fact',text:'事实表述',refs:['F1']},{kind:'opinion',text:'在本次评论样本中，有人……',refs:['O1']},{kind:'analysis',text:'基于以上材料的判断，清楚标明推断。',refs:['F1','O1']}]})),notes:[]},
-  review:{verdict:'pass',issues:[],summary:'对照来源检查后的结论；结构校验不等于语义真实性认证',checks:{facts:true,opinion_attribution:true,title_support:true,cross_platform_consistency:true}}
+  write:{angle_id:'A1',drafts:[{platform:'toutiao',title:'让人忍不住点开的标题',title_refs:['F1'],blocks:[{kind:'transition',text:'开头三句直接抛冲突，把读者拽进来。',refs:[]},{kind:'fact',text:'事情本身，要说准。',refs:['F1']},{kind:'opinion',text:'评论区有人直接开怼：……',refs:['O1']},{kind:'analysis',text:'自己的态度和判断，可以有立场。',refs:[]},{kind:'transition',text:'结尾抛一个让人想站队的问题。',refs:[]}]}],notes:[]},
+  review:{verdict:'pass',issues:[{severity:'info',platform:'toutiao',text:'标题还可以更狠：……',refs:[]}],summary:'事实无硬伤；标题和开头的抓人程度评价',checks:{facts:true,opinion_attribution:true,title_support:true,cross_platform_consistency:true}}
 };
 const instructions={
-  editor:'评估热点的写作潜力。关注热度、讨论空间和可用素材；目标领域尚未限定。缺数据的指标用 null，不能把平台排名换算成真实流量。S/A 是研究优先级，不代表可以直接发布。',
-  research:'基于原文核实逐条事实。搜索摘要和热榜标题不能作为唯一 confirmed 证据。区分某方说了什么与事情确实如此。每个 evidence.quote 必须是 source.title 或 source.body 中真实存在的连续片段。争议保留 disputed，缺证据保留 unknown，不强行凑满资料。需要补来源时先 release_task，再用外部公开搜索/浏览工具核实并 import_sources；资料更新会使上游复评，然后重新领取。',
-  opinion:'只从 comment 素材提取观点。不把评论中的事实指控当成事实。提炼讨论焦点、支持与反对、高频问题和关键词、平台差异；不强行制造两派。每个观点必须引用具体评论 ID；同样内容的重复评论不重复计数。无评论时返回 insufficient 和空数组。',
-  angles:'基于 Fact Pack 与 Opinion Pack 提供 1–5 个角度。热点、大众消遣、口语、冲突和读者关联优先。指出钩子、读者价值、支持资料及标题候选。可以有锋芒，禁止捏造冲突和全网反应。不必深度长文。',
-  write:'根据 selected_angle（若为空选首个）写今日头条/企鹅号/百家号三版。口语、有节奏、开头直接切题，不限定细分领域和年龄。只能使用资料包；事实块引用 Fact ID，评论观点块引用 Opinion ID，分析块显式标注推断且引用依据，transition 不加入新事实。unknown 不进入稿件；disputed 只可作为有归属的争议说法。标题也要引用支持资料。',
-  review:'独立对照原始来源与资料包检查全部版本及标题，核对人名、数字、时间、引语、推断、评论归属和版本一致性。找到不支持的地方要 revise/blocked。不能因为引用编号存在就判定为真。通过仍须人工审核，不得发布。'
+  editor:'判断这个热点值不值得写、能不能吸引点击。重点看：时效（刚上榜、正在发酵的优先，已经凉了的降级）、冲突和话题性（有没有能吵起来的点）、大众关联（普通人会不会关心）、有没有可挖的料。controversy 和 mass_interest 是核心指标。缺数据的指标用 null，不要把排名硬换算成流量。',
+  research:'查清来龙去脉，挖能写的料：起因、经过、反转、细节、数字、各方说法、槽点。热榜标题没有正文时，先 release_task，用外部搜索/浏览工具找到原始报道或帖子，import_sources 后再领取。事实要准：evidence.quote 必须是素材里真实存在的连续原文；评论和热榜不能当事实证据；有争议标 disputed，查不到标 unknown。不需要面面俱到，够写一篇就行。',
+  opinion:'评论是加分项，不是必需品。没有评论就直接返回 insufficient 和空数组，别卡流程。有评论就挖：争议点、对立阵营、金句、高频槽点、最能引发站队的说法，放进 focus/support/oppose/questions，金句原话放进 keywords。每个观点引用具体评论 ID；评论里的指控只是网友说法，不能当成事实。',
+  angles:'给 1–5 个切入角度，目标是让人想点进来。优先：冲突、反转、反常识、和普通人利益相关、能引发站队的。每个角度给 5–10 个标题，至少覆盖这几种写法：反问式、站队式（“这事你站哪边”）、反转式（“没想到……”）、网友扒出式（“网友：……”，前提是评论里真有人这么说）、数字细节式。标题可以夸张语气、可以有锋芒，但不能编造没发生的事实。',
+  write:'根据 selected_angle（若为空选首个）写稿。默认只写今日头条一版（toutiao）；需要多平台时，每个平台的标题和开头都要重写，不要复制粘贴。风格：标题要让人忍不住点开；开头三句内抛出冲突或悬念，别铺垫；短句短段，口语化，有情绪，有立场；正文 600–1200 字；结尾抛一个让人想在评论区站队的问题。不要写“本次样本有限”“不代表全部观点”这类免责话术。硬规则只有两条：事实块必须引用 Fact ID，网友说法必须引用 Opinion ID 并写成网友说的；unknown 不进稿，disputed 只能写成“有说法称”。analysis 和 transition 块可以不带引用，但不能夹带新事实。',
+  review:'只查硬伤，不挑文风：人名、数字、时间、原话是否和素材一致；有没有把网友说法写成事实；有没有编造没发生的事；有没有人身攻击、地域或性别攻击、涉政等平台高危内容。硬伤记 error 并返回 revise/blocked；小瑕疵记 warning，仍可 pass。另外用 info 评价标题和开头够不够抓人，给出更狠的改法。通过后仍由人工决定是否发布。'
 };
 export function context(store,id,stage=store.next(id)) {
   if(!schemas[stage])throw new Error(`当前为 ${stage}：先采集实质素材，或任务已完成/暂停`);
@@ -67,14 +67,14 @@ export function validate(store,id,stage,raw){
   if(stage==='write'){
     const angle=store.latest(id,'angles')?.content.angles.find(a=>a.id===c.angle_id);if(!angle)throw new Error('选用角度不存在');
     const selected=store.topic(id).selected_angle;if(selected&&selected!==c.angle_id)throw new Error('请使用用户选定的角度');
-    const platforms=c.drafts.map(d=>d.platform);if(new Set(platforms).size!==platforms.length||!['toutiao','penguin','baijiahao'].every(p=>platforms.includes(p)))throw new Error('需要三个不重复的目标平台版本');
+    const platforms=c.drafts.map(d=>d.platform);if(new Set(platforms).size!==platforms.length)throw new Error('同一平台只写一版');
     const evidence=new Map([...facts,...opinionMap]);
-    for(const d of c.drafts){checkIds(d.title_refs,evidence,'标题');if(!d.title_refs.length)throw new Error('标题需要依据');
-      for(const b of d.blocks){const map=b.kind==='fact'?facts:b.kind==='opinion'?opinionMap:evidence;checkIds(b.refs,map,'正文');if(b.kind!=='transition'&&!b.refs.length)throw new Error('事实、观点、分析段需有引用');}
+    for(const d of c.drafts){checkIds(d.title_refs,evidence,'标题');
+      for(const b of d.blocks){const map=b.kind==='fact'?facts:b.kind==='opinion'?opinionMap:evidence;checkIds(b.refs,map,'正文');if((b.kind==='fact'||b.kind==='opinion')&&!b.refs.length)throw new Error('事实段和网友说法段需有引用');}
       for(const ref of [...d.title_refs,...d.blocks.flatMap(b=>b.refs)])if(facts.get(ref)?.status==='unknown')throw new Error('未知主张不能进入成稿');
     }
   }
-  if(stage==='review'&&c.verdict==='pass'&&(Object.values(c.checks).some(v=>!v)||c.issues.some(i=>i.severity==='error'||i.severity==='warning')))throw new Error('存在未通过检查或待修问题，不能标记 pass');
+  if(stage==='review'&&c.verdict==='pass'&&(Object.values(c.checks).some(v=>!v)||c.issues.some(i=>i.severity==='error')))throw new Error('存在硬伤，不能标记 pass');
   return c;
 }
 export function submit(store,{topic_id,stage,content:raw,actor,basis,claim_id}){
@@ -86,7 +86,7 @@ export function exportMarkdown(store,id){
   const approved=d.approved_artifact===w.id;
   const lines=[`# ${d.title}`,'',`状态：${approved?'人工已确认（仍未发布）':'待人工审核，勿直接发布'}`,`导出时间：${now()}`,`草稿版本：${w.version} / ${w.id}`,''];
   const names={toutiao:'今日头条',penguin:'企鹅号',baijiahao:'百家号',weitoutiao:'微头条',video60:'60秒口播'};
-  for(const draft of w.content.drafts){lines.push(`## ${names[draft.platform]}`,`### ${draft.title}`,'',...draft.blocks.flatMap(b=>[b.text+(b.refs.length?` [${b.refs.join(', ')}]`:''),'']));}
+  for(const draft of w.content.drafts){lines.push(`## ${names[draft.platform]}`,`### ${draft.title}`,'',...draft.blocks.flatMap(b=>[b.text,'']),`<!-- 引用：${draft.blocks.map((b,i)=>b.refs.length?`第${i+1}段 ${b.refs.join('/')}`:'').filter(Boolean).join('；')||'无'} -->`,'');}
   const facts=store.latest(id,'research')?.content.facts||[];lines.push('## 事实与来源','');
   for(const f of facts){lines.push(`- ${f.id} [${f.status}] ${f.claim}`);for(const e of f.evidence){const s=d.sources.find(x=>x.id===e.source_id);lines.push(`  - ${s?.url||'导入素材'}：${e.quote}`);}}
   lines.push('','## 讨论样本','',...d.sources.filter(s=>s.kind==='comment').map(s=>`- ${s.id} ${s.platform} ${s.url}：${s.body}`),'','## 检查结果','',JSON.stringify(store.latest(id,'review')?.content||{status:'尚未检查'},null,2));

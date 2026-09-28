@@ -45,13 +45,24 @@ GitHub 仓库只包含源码、启动器、说明和公开素材样例，不包�
 | 百度贴吧 | 热议榜、公开帖可见楼层解析、搜索结果解析 | 热议榜成功；搜索 HTTP 403；测试热议页未取得帖子正文。楼层解析仅在本地样例验证，不能称全站实测通过 |
 | Reddit | 热门、关键词搜索、帖子及顶层评论；可读 `REDDIT_ACCESS_TOKEN` | 匿名访问出现 HTTP 403 / DNS 失败，授权访问未验证 |
 | 小红书 | 公开分享页正文尝试、浏览器搜索入口、实际可见正文和评论导入 | 私有签名搜索/评论接口不在本版中；完整自动采集未实现。公开探索页仅为页面外壳，不算正文成功 |
-| TrendRadar | 只读导入现有 `output/news/*.db`，保留排名历史 | 依据上游 schema 实现，并通过兼容数据库样例验证；未安装/启动完整 TrendRadar。默认 NewsNow 上游现场 HTTP 403 |
+| TrendRadar | 只读导入现有 `output/news/*.db`，保留排名历史 | 依据上游 schema 实现，并通过兼容数据库样例验证；未安装/启动完整 TrendRadar |
+| NewsNow（本地） | 微博/知乎/抖音/头条/百度/B站热搜等热榜 | 公共实例 HTTP 403；本机自建实测可用，见下文 |
 | 原生 RSS / RSSHub | 可配置 RSS/Atom 解析、原始响应存档；本地 RSSHub 可显式 allowLocal | 解析和导入测试通过；未部署 RSSHub 实例，需用户配置可用路由 |
 | 公开 Web 原文 | HTML 正文抓取、原始响应和来源保存 | 为 Research 提供 URL 采集；公开 Web 搜索由外部 Agent 的搜索工具执行。本程序未绑定商业 Web 搜索 API |
 
 采集器是本项目独立实现，没有引入或复制 MediaCrawler 代码，没有修改 TrendRadar/RSSHub 核心源码。它们均按外部接口/文件接入。平台可访问性、授权条件与页面变化仍独立存在。
 
 默认每次导入 12 条热门（最多 50），单次响应最多 3MB，每域请求至少间隔约 1.2 秒。评论是有限样本，不是全站舆情。B站视频仅取标题/简介，未实现转写或看视频。
+
+## 本地热榜：NewsNow（微博/知乎/抖音/头条/百度…）
+
+公共 NewsNow 实例拒绝外部调用（HTTP 403），所以改为本机自建。[NewsNow](https://github.com/ourongxing/newsnow)（MIT）直接用 Node 运行，不需要 Docker。
+
+- 双击 `Start-NewsNow.cmd`：首次会把 NewsNow `v0.0.42` 克隆到 `vendor/newsnow/` 并构建（约数分钟），之后秒开；服务只监听 `127.0.0.1:4444`。
+- 双击 `Stop-NewsNow.cmd` 停止。升级/重建：`powershell -File scripts/Start-NewsNow.ps1 -Rebuild`。
+- 看板「发现热点」下拉里选 `NewsNow · 微博热搜 / 知乎热榜 / 抖音热点 / 今日头条 / 百度热搜 / B站热搜 / 贴吧 / 虎扑 / 快手 / 豆瓣 / 澎湃`。默认地址 `http://127.0.0.1:4444/api/s`，可在「数据源设置」修改。
+- 热榜只给标题和链接；正文由 Agent 在「素材采集」里补。
+- 2026-09-28 在 macOS 用同样的 Node 流程实测：微博、知乎、抖音、头条、百度、B站热搜均返回 20–30 条，Hotdesk `discover newsnow:weibo` 导入成功。Windows 启动脚本按现有启动器写法编写，尚未在 Windows 上现场运行。
 
 ## Agent 接入
 
@@ -110,7 +121,8 @@ node src/cli.mjs export_draft --file input.json --out review.md
 
 - `Fact Pack` 逐条区分 confirmed/disputed/unknown。非 unknown 主张必须有原文连续引文；评论和热榜不能直接作事实证据。
 - `Opinion Pack` 的观点必须引用真实 comment 素材。没有评论则明确 insufficient。
-- `Writer` 输出三个必需平台；事实/观点/分析段有对应引用，unknown 主张不能进稿。
+- `Writer` 默认输出今日头条一版（可选多平台，每平台须重写标题与开头）；追求点击：开头抛冲突、口语、有立场、结尾引导站队。事实段/网友说法段必须引用，分析与过渡段可不引用但不得夹带新事实；unknown 主张不能进稿。
+- `Review` 只拦硬伤（事实错误、网友说法写成事实、编造、人身/地域/性别攻击、高危敏感）；warning 可通过，并用 info 给出更抓人的标题建议。
 - 验证器检查结构、ID、引文存在性和流程版本；**不会证明语义蕴含或绝对真实性**。审稿步骤和人工判断仍有必要。
 - 相同规范化 URL/近期相同标题保守归并，不同标题的同一事件由 Agent 判断后调用 merge_topics 或在 UI 合并。没有宣称全自动语义聚类已经解决。
 - 热度变化只比较实际收集到的同平台排名；缺历史时是未知。首次发现是系统时间，不能等同事件首次发生。

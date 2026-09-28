@@ -19,11 +19,11 @@ Use the `hotdesk` MCP tools if connected. Otherwise run the project CLI from the
 
 - Data acquisition failures are failures or partial results, not empty public opinion. Reddit may require an authorized API token; Xiaohongshu v0.1 does not implement private signed search/comment endpoints. Return useful source gaps if access is blocked.
 - Before adding research material during an active lease, release it. New sources invalidate the prior analysis; run the updated initial evaluation before proceeding. Finish source gathering early when practical.
-- Keep `confirmed`, `disputed`, `unknown` distinct. A claim that a publisher made a statement is different from endorsing the statement. Quotes must be present in the referenced original text. Unknown facts cannot enter drafts.
-- Opinion points require actual comment source IDs. No comments means `insufficient`, empty opinion arrays, and a visible limitation. Do not turn these samples into a claim about all users.
-- Choose 1–5 angles, with hooks and evidence. Respect a user-selected angle. Produce the three required platforms: `toutiao`, `penguin`, `baijiahao`. Topic and audience positioning are intentionally not fixed yet; prioritize a usable workflow over elaborate prose.
-- Content can be lively, concise, opinionated and discussion-oriented. Titles must be supported by their materials. Keep inference and reported comments distinct from verified facts.
-- `review` must inspect the actual wording against source excerpts, not just IDs. Return `revise`/`blocked` when necessary. Do not claim machine validation proves truth.
+- Goal is click-through on timely hot topics. Find what is worth writing: origin, twists, details, numbers, conflicting sides. Keep `confirmed`, `disputed`, `unknown` distinct; quotes must be present in the referenced original text; unknown facts cannot enter drafts.
+- Comments are a bonus, not a requirement. No comments means `insufficient` and empty arrays; keep going. With comments, mine disputes, opposing camps and punchy lines; attribute them as netizen views, never as facts.
+- Choose 1–5 angles with 5–10 attention-grabbing titles each (question, take-a-side, twist, "netizens found…", number/detail). Titles may be dramatic in tone but must not invent events. Respect a user-selected angle.
+- Default to one `toutiao` draft; if writing more platforms, rewrite title and opening per platform. Hook within three sentences, short colloquial paragraphs, clear stance, end with a take-a-side question. No disclaimer boilerplate. Fact and opinion blocks need refs; analysis/transition blocks may omit refs but must not add new facts.
+- `review` checks hard errors only: names, numbers, dates, quotes vs sources; netizen claims stated as fact; invented events; personal/regional/gender attacks or high-risk sensitive content. Hard errors are `error` → `revise`/`blocked`; minor issues are `warning` and may still pass. Use `info` to suggest punchier titles and openings.
 - Release a lease when pausing or failing. The web UI supports human editing and invalidates downstream artifacts; old versions remain traceable.
 
 Use the root README for setup and supported adapter boundaries. The stage instructions and `output_example` returned by `get_task` are the maintained output contracts; do not duplicate a competing schema.

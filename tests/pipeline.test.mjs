@@ -72,3 +72,12 @@ test('真实 MCP stdio 握手、工具发现、领取与提交共用 SQLite，�
     const result=await client.callTool({name:'submit_result',arguments:{topic_id:t.id,stage:'editor',actor:'mcp-test',basis:c.basis,claim_id:c.claim_id,content:content('editor',source,comment)}});assert.ok(!result.isError);assert.equal(s.latest(t.id,'editor').actor,'mcp-test');
   }finally{await client.close();s.close();}
 });
+test('营销稿规则：单平台可成稿，分析段免引用，网友说法仍须引用；warning 可通过，error 拦截',async()=>{
+  const {s,t,source,comment}=setup();await advance(s,t,source,comment);
+  const w=content('write',source,comment);assert.equal(w.drafts.length,1);assert.doesNotThrow(()=>validate(s,t.id,'write',w));
+  const dup=structuredClone(w);dup.drafts.push(structuredClone(w.drafts[0]));assert.throws(()=>validate(s,t.id,'write',dup),/同一平台/);
+  const bare=structuredClone(w);bare.drafts[0].blocks.find(b=>b.kind==='opinion').refs=[];assert.throws(()=>validate(s,t.id,'write',bare),/需有引用/);
+  const r=content('review',source,comment);r.issues=[{severity:'warning',platform:'toutiao',text:'小瑕疵',refs:[]}];assert.doesNotThrow(()=>validate(s,t.id,'review',r));
+  r.issues[0].severity='error';assert.throws(()=>validate(s,t.id,'review',r),/硬伤/);
+  assert.doesNotMatch(exportMarkdown(s,t.id).split('## 事实与来源')[0],/\[F1\]/);s.close();
+});
