@@ -13,17 +13,19 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const root=resolve('../../work/hotdesk-tests');mkdirSync(root,{recursive:true});
 function setup(){const dir=mkdtempSync(join(root,'case-')),s=new Store(dir),t=s.createTopic('[TEST] 社区阅览室调整开放时间');const source=s.addSource(t.id,{kind:'article',platform:'web',title:'测试公告',url:'https://example.org/notice',body:'社区阅览室将于十月一日起延长开放至晚上九点。'});const comment=s.addSource(t.id,{kind:'comment',platform:'tieba',title:'测试评论',url:'https://example.org/comment/1',body:'下班后终于能去看书了。'});return {s,t,source,comment,dir};}
-function content(stage,source,comment){const c=structuredClone(examples[stage]);if(stage==='editor')c.metrics.freshness.score=80;
+const noBenchmark=c=>Object.assign(c,{status:'none_found',items:[],gaps:[],consensus:[]});
+const withIncrements=d=>{const f=d.blocks.findIndex(b=>b.kind==='fact'&&b.refs.length);return {...d,increments:d.increments||[{type:'background',block_index:f,note:'测试背景'},{type:'impact',block_index:0,note:'测试影响'},{type:'counterintuitive',block_index:d.blocks.length-1,note:'测试判断'}]};};
+function content(stage,source,comment){const c=structuredClone(examples[stage]);if(stage==='benchmark')noBenchmark(c);if(stage==='editor')c.metrics.freshness.score=80;
   if(stage==='research')c.facts=[{id:'F1',claim:'测试公告称阅览室十月一日起开放至晚九点。',status:'confirmed',evidence:[{source_id:source.id,quote:'延长开放至晚上九点'}],reason:'公告原文'}];
   if(stage==='opinion')c.focus=[{id:'O1',text:'该样本关心下班后的使用时间。',source_ids:[comment.id]}];
   return c;
 }
 async function advance(s,t,source,comment,until='review'){
-  for(const stage of ['editor','research','opinion','angles','write','review']){const task=await callTool(s,'claim_task',{topic_id:t.id,actor:'test-agent'});await callTool(s,'submit_result',{topic_id:t.id,stage,actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:content(stage,source,comment)});if(stage===until)break;}
+  for(const stage of ['editor','research','opinion','benchmark','angles','write','review']){const task=await callTool(s,'claim_task',{topic_id:t.id,actor:'test-agent'});await callTool(s,'submit_result',{topic_id:t.id,stage,actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:content(stage,source,comment)});if(stage===until)break;}
 }
 test('完整流水线、引用导出、人工确认、数据更新失效、重启持久性',async()=>{
   const {s,t,source,comment,dir}=setup();await advance(s,t,source,comment);assert.equal(s.next(t.id),'done');assert.match(exportMarkdown(s,t.id),/待人工审核/);const approved=s.approve(t.id);assert.equal(s.topic(t.id).approved_artifact,approved);
-  assert.match(exportMarkdown(s,t.id),/人工已确认/);s.addSource(t.id,{kind:'article',platform:'web',title:'更正',url:'https://example.org/update',body:'开放时间进一步调整，请以更正为准。'});assert.equal(s.next(t.id),'editor');assert.equal(s.topic(t.id).approved_artifact,null);assert.equal(s.artifacts(t.id).length,6);assert.ok(s.artifacts(t.id).every(a=>!a.valid));s.close();const reopened=new Store(dir);assert.equal(reopened.sources(t.id).length,3);assert.equal(reopened.artifacts(t.id).length,6);reopened.close();
+  assert.match(exportMarkdown(s,t.id),/人工已确认/);s.addSource(t.id,{kind:'article',platform:'web',title:'更正',url:'https://example.org/update',body:'开放时间进一步调整，请以更正为准。'});assert.equal(s.next(t.id),'editor');assert.equal(s.topic(t.id).approved_artifact,null);assert.equal(s.artifacts(t.id).length,7);assert.ok(s.artifacts(t.id).every(a=>!a.valid));s.close();const reopened=new Store(dir);assert.equal(reopened.sources(t.id).length,3);assert.equal(reopened.artifacts(t.id).length,7);reopened.close();
 });
 test('拒绝伪造引文、评论冒充事实、未列入资料包的事实和未知事实入稿',async()=>{
   const {s,t,source,comment}=setup();const c=content('research',source,comment);c.facts[0].evidence[0].quote='不存在的原文';assert.throws(()=>validate(s,t.id,'research',c),/未在原始素材/);c.facts[0].evidence[0]={source_id:comment.id,quote:comment.body};assert.throws(()=>validate(s,t.id,'research',c),/评论或热榜/);
@@ -67,8 +69,32 @@ test('Web API 会话/跨站限制，失败编辑不丢旧版本，拒绝过期�
 });
 test('真实 MCP stdio 握手、工具发现、领取与提交共用 SQLite，无发布/人工确认工具',async()=>{
   const {s,t,source,comment,dir}=setup();const client=new Client({name:'hotdesk-test',version:'1'});const transport=new StdioClientTransport({command:process.execPath,args:[resolve('src/mcp.mjs')],env:{...process.env,HOTDESK_DATA:dir},stderr:'pipe'});
-  try{await client.connect(transport);const list=await client.listTools();assert.ok(list.tools.some(t=>t.name==='claim_task'));assert.ok(!list.tools.some(t=>/publish|approve/.test(t.name)));
+  try{await client.connect(transport);const list=await client.listTools();assert.ok(list.tools.some(t=>t.name==='claim_task'));assert.ok(list.tools.some(t=>t.name==='export_publish_pack'));assert.ok(!list.tools.some(t=>/^(publish|approve)(_|$)/.test(t.name)));
     const take=await client.callTool({name:'claim_task',arguments:{topic_id:t.id,actor:'mcp-test'}});const c=JSON.parse(take.content[0].text);assert.ok(c.claim_id);
     const result=await client.callTool({name:'submit_result',arguments:{topic_id:t.id,stage:'editor',actor:'mcp-test',basis:c.basis,claim_id:c.claim_id,content:content('editor',source,comment)}});assert.ok(!result.isError);assert.equal(s.latest(t.id,'editor').actor,'mcp-test');
   }finally{await client.close();s.close();}
+});
+test('营销稿规则：单平台可成稿，分析段免引用，网友说法仍须引用；warning 可通过，error 拦截',async()=>{
+  const {s,t,source,comment}=setup();await advance(s,t,source,comment);
+  const w=content('write',source,comment);assert.equal(w.drafts.length,1);assert.doesNotThrow(()=>validate(s,t.id,'write',w));
+  const dup=structuredClone(w);dup.drafts.push(structuredClone(w.drafts[0]));assert.throws(()=>validate(s,t.id,'write',dup),/同一平台/);
+  const bare=structuredClone(w);bare.drafts[0].blocks.find(b=>b.kind==='opinion').refs=[];assert.throws(()=>validate(s,t.id,'write',bare),/需有引用/);
+  const r=content('review',source,comment);r.issues=[{severity:'warning',platform:'toutiao',text:'小瑕疵',refs:[]}];assert.doesNotThrow(()=>validate(s,t.id,'review',r));
+  r.issues[0].severity='error';assert.throws(()=>validate(s,t.id,'review',r),/硬伤/);
+  assert.doesNotMatch(exportMarkdown(s,t.id).split('## 事实与来源')[0],/\[F1\]/);s.close();
+});
+test('网页正文提取：Readability 去导航与推荐，尾部声明截断',()=>{
+  const nav='<nav>'+'首页 新闻 体育 娱乐 '.repeat(30)+'</nav>',rec='<aside><h3>为你推荐</h3>'+'<p>无关推荐文章标题</p>'.repeat(20)+'</aside>';
+  const html=`<html><head><title>测试新闻</title></head><body>${nav}<article><h1>测试新闻</h1><p>社区阅览室将于十月一日起延长开放至晚上九点，方便上班族下班后阅读。</p><p>工作人员表示，延长时段内借还书服务照常。</p><p>特别声明：以上内容为自媒体用户上传。</p></article>${rec}</body></html>`;
+  const [row]=parsePage(html,'https://example.org/news');assert.equal(row.metadata.extractor,'readability');
+  assert.match(row.body,/延长开放至晚上九点/);assert.doesNotMatch(row.body,/首页 新闻|无关推荐|特别声明/);
+});
+test('MCP 连接即下发规则：instructions、get_rules、rules 资源与 produce_topic 提示',async()=>{
+  const {dir}=setup();const client=new Client({name:'hotdesk-rules-test',version:'1'});const transport=new StdioClientTransport({command:process.execPath,args:[resolve('src/mcp.mjs')],env:{...process.env,HOTDESK_DATA:dir},stderr:'pipe'});
+  try{await client.connect(transport);
+    assert.match(client.getInstructions(),/不编造任何东西/);assert.match(client.getInstructions(),/get_rules/);
+    const rules=JSON.parse((await client.callTool({name:'get_rules',arguments:{}})).content[0].text).rules;assert.match(rules,/信息增量/);assert.match(rules,/对标拆解/);
+    const res=await client.readResource({uri:'hotdesk://rules'});assert.equal(res.contents[0].text,rules);
+    const prompt=await client.getPrompt({name:'produce_topic',arguments:{topic_id:'t_x'}});assert.match(prompt.messages[0].content.text,/话题 t_x/);
+  }finally{await client.close();}
 });

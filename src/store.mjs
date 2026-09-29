@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 export const now = () => new Date().toISOString();
 export const uid = (prefix) => `${prefix}_${randomUUID().slice(0, 12)}`;
 export const hash = (value) => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
-export const STAGES = ['collect', 'editor', 'research', 'opinion', 'angles', 'write', 'review'];
+export const STAGES = ['collect', 'editor', 'research', 'opinion', 'benchmark', 'angles', 'write', 'review'];
 export const dataDir = resolve(process.env.HOTDESK_DATA || fileURLToPath(new URL('../data', import.meta.url)));
 export function canonical(url) {
   if (!url) return '';
@@ -18,6 +18,10 @@ export function canonical(url) {
   return u.href;
 }
 export const normalize = (s) => String(s || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
+// Source provenance: collected = fetched by Hotdesk itself; human = pasted by the user in the web UI;
+// verified = agent import whose text was found on the live page; anything else is unverified.
+export const TRUSTED_ORIGINS = ['collected', 'human', 'verified'];
+export const verificationOf = (s) => s.metadata?.verification?.status || (s.metadata?.imported ? 'unverified' : 'collected');
 
 export class Store {
   constructor(dir = dataDir) {
@@ -71,7 +75,7 @@ export class Store {
     this.topic(id);
     const title = normalize(input.title).slice(0, 1000); const body = String(input.body || '').slice(0, 100000);
     const url = canonical(input.url || ''); const kind = input.kind || 'article'; const platform = input.platform || 'web';
-    if (!['article', 'post', 'comment', 'hotlist'].includes(kind)) throw new Error('不支持的素材类型');
+    if (!['article', 'post', 'comment', 'hotlist', 'benchmark'].includes(kind)) throw new Error('不支持的素材类型');
     if (!title && !body) throw new Error('素材正文和标题不能同时为空');
     const dedup = hash([platform, kind, input.external_id || (kind === 'comment' ? [url, normalize(body)] : url || normalize(body || title))]);
     const old = this.db.prepare('SELECT * FROM sources WHERE topic_id=? AND dedup=?').get(id, dedup);
@@ -84,7 +88,7 @@ export class Store {
       this.db.prepare(`INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(topic_id,dedup) DO UPDATE SET title=excluded.title,body=excluded.body,published_at=excluded.published_at,observed_at=excluded.observed_at,raw_hash=excluded.raw_hash,metadata=excluded.metadata`).run(sid,id,dedup,platform,kind,title,url,body,published,observed,rawHash,meta);
       this.db.prepare('INSERT INTO source_versions VALUES(?,?,?,?)').run(uid('sv'),sid,now(),JSON.stringify({...input,id:sid,raw_hash:rawHash}));
       this.db.prepare('UPDATE topics SET revision=revision+1 WHERE id=?').run(id);
-      this.invalidate(id, 1, '素材新增或更新'); this.event(id, 'source_saved', { id: sid, platform, kind, raw_hash: rawHash });
+      this.invalidate(id, kind === 'benchmark' ? STAGES.indexOf('benchmark') : 1, kind === 'benchmark' ? '对标文章新增或更新' : '素材新增或更新'); this.event(id, 'source_saved', { id: sid, platform, kind, raw_hash: rawHash });
     });
     return this.db.prepare('SELECT * FROM sources WHERE id=?').get(sid);
   }
@@ -101,13 +105,13 @@ export class Store {
   latest(id, stage) { const a = this.db.prepare('SELECT * FROM artifacts WHERE topic_id=? AND stage=? AND valid=1 ORDER BY version DESC LIMIT 1').get(id,stage); return a ? { ...a, content: JSON.parse(a.content) } : null; }
   artifacts(id) { return this.db.prepare('SELECT * FROM artifacts WHERE topic_id=? ORDER BY created_at DESC,version DESC').all(id).map(a => ({...a,content:JSON.parse(a.content)})); }
   basis(id, stage) { const t = this.topic(id); return hash({ revision: t.revision, selected_angle: stage === 'write' || stage === 'review' ? t.selected_angle : null, upstream: STAGES.slice(1, STAGES.indexOf(stage)).map(s => this.latest(id,s)?.id || null) }); }
-  next(id) { if (this.topic(id).paused) return 'paused'; if (!this.sources(id).some(s => s.kind !== 'hotlist' && normalize(s.body).length>=5)) return 'collect'; return STAGES.slice(1).find(s => !this.latest(id,s)) || 'done'; }
+  next(id) { if (this.topic(id).paused) return 'paused'; if (!this.sources(id).some(s => !['hotlist','benchmark'].includes(s.kind) && normalize(s.body).length>=5)) return 'collect'; return STAGES.slice(1).find(s => !this.latest(id,s)) || 'done'; }
   detail(id) {
     const t = this.topic(id); const artifacts = this.artifacts(id); const sources = this.sources(id);
     const observations = this.db.prepare('SELECT * FROM observations WHERE topic_id=? ORDER BY observed_at').all(id);
     const by = new Map(); for (const o of observations) { const k = `${o.platform}:${o.url}`; if (!by.has(k)) by.set(k, []); by.get(k).push(o); }
     const movements = [...by].flatMap(([k,v]) => v.length > 1 && v[0].rank > 0 && v.at(-1).rank > 0 && v[0].observed_at !== v.at(-1).observed_at ? [{ platform: v[0].platform, from:v[0].rank, to:v.at(-1).rank, delta:v[0].rank-v.at(-1).rank }] : []);
-    return { ...t, sources, artifacts, observations, movements, platform_count: new Set(sources.filter(s=>s.kind==='hotlist'||s.kind==='post'||s.kind==='comment').map(s=>s.platform)).size, next: this.next(id), events: this.db.prepare('SELECT * FROM events WHERE topic_id=? ORDER BY id DESC LIMIT 100').all(id).map(e=>({...e,payload:JSON.parse(e.payload)})) };
+    return { ...t, sources, artifacts, observations, movements, images:this.setting(`images:${id}`,[]), platform_count: new Set(sources.filter(s=>s.kind==='hotlist'||s.kind==='post'||s.kind==='comment').map(s=>s.platform)).size, next: this.next(id), events: this.db.prepare('SELECT * FROM events WHERE topic_id=? ORDER BY id DESC LIMIT 100').all(id).map(e=>({...e,payload:JSON.parse(e.payload)})) };
   }
   list() {
     return this.db.prepare('SELECT * FROM topics WHERE merged_into IS NULL ORDER BY updated_at DESC LIMIT 300').all().map(t => {
@@ -140,7 +144,7 @@ export class Store {
   }
   release(id, reason='Agent 主动释放') { const c=this.db.prepare('SELECT * FROM claims WHERE id=?').get(id); if(!c) throw new Error('租约不存在'); this.db.prepare("UPDATE claims SET status='released' WHERE id=? AND status='active'").run(id); this.event(c.topic_id,'task_released',{id,reason}); }
   reset(id,stage) { if(!STAGES.slice(1).includes(stage)) throw new Error('无效工序'); this.transaction(()=>this.invalidate(id,STAGES.indexOf(stage),'用户要求重跑')); }
-  selectAngle(id,angle) { const a=this.latest(id,'angles'); if(!a?.content.angles.some(x=>x.id===angle)) throw new Error('角度不存在'); this.transaction(()=>{this.db.prepare('UPDATE topics SET selected_angle=? WHERE id=?').run(angle,id); this.invalidate(id,5,'切入角度变更');}); }
+  selectAngle(id,angle) { const a=this.latest(id,'angles'); if(!a?.content.angles.some(x=>x.id===angle)) throw new Error('角度不存在'); this.transaction(()=>{this.db.prepare('UPDATE topics SET selected_angle=? WHERE id=?').run(angle,id); this.invalidate(id,STAGES.indexOf('write'),'切入角度变更');}); }
   pause(id,value) {this.topic(id); this.db.prepare('UPDATE topics SET paused=?,updated_at=? WHERE id=?').run(value?1:0,now(),id); if(value)this.db.prepare("UPDATE claims SET status='stale' WHERE topic_id=? AND status='active'").run(id); this.event(id,value?'paused':'resumed');}
   approve(id) { const w=this.latest(id,'write'),r=this.latest(id,'review'); if(!w||!r||r.content.verdict!=='pass') throw new Error('须先完成草稿检查并通过；有问题请修改后重审'); this.db.prepare('UPDATE topics SET approved_artifact=? WHERE id=?').run(w.id,id);this.event(id,'human_approved',{artifact:w.id});return w.id; }
   merge(from,to) {
