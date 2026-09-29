@@ -22,7 +22,7 @@ export const toolDefinitions={
   select_angle:{description:'选定已有切入角度并将写作/审稿标为待重做。',schema:{topic_id:id,angle_id:id}},
   merge_topics:{description:'确认两个条目是同一事件后合并到目标；保留原话题档案，目标重新分析。不能仅凭相似关键词合并。',schema:{from:id,to:id}},
   export_draft:{description:'导出带引用的 Markdown 审核稿。未人工确认会带待审核标记；没有发布能力。',schema:{topic_id:id}},
-  collect_image:{description:'核对场景后下载真实配图；须关联本话题原文来源，保留图注/署名/使用说明。图片更新会使审稿失效。',schema:{topic_id:id,source_id:id,url:z.string().url(),caption:z.string().min(1).max(500),credit:z.string().min(1).max(200),usage_note:z.string().min(1).max(1000),verified_scene:z.literal(true),placement:z.enum(['cover','detail','result']),platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3)}},
+  collect_image:{description:'从来源原文里取配图：图片必须出现在该来源页面的正文里（collect_url 返回的 image_candidates 中 in_article=true 的图；og:image 仅可作封面），不能用图片搜索结果。先真的看图，把画面里实际有什么写进 seen_description，再下载。图片更新会使审稿失效。',schema:{topic_id:id,source_id:id,url:z.string().url(),seen_description:z.string().min(10).max(500),caption:z.string().min(1).max(500),credit:z.string().min(1).max(200),usage_note:z.string().min(1).max(1000),verified_scene:z.literal(true),placement:z.enum(['cover','detail','result']),platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3)}},
   list_images:{description:'查看本话题真实图片文件及来源记录。',schema:{topic_id:id}},
   export_publish_pack:{description:'导出三平台标题/纯正文/配图/插图说明的文件夹和ZIP；缺图、缺稿或审稿未过会标待补全。ready_for_handoff不等于人工确认或已发布。',schema:{topic_id:id,platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3).refine(a=>new Set(a).size===a.length,'平台不能重复').optional()}},
 };

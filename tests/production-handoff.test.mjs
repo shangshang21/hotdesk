@@ -11,7 +11,7 @@ const {fetchImage,imageCandidates}=await import('../src/adapters.mjs');
 const {createApp}=await import('../src/server.mjs');
 const root=resolve('../../work/hotdesk-tests');mkdirSync(root,{recursive:true});
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZkAAAAASUVORK5CYII=','base64');
-function setup(){const store=new Store(mkdtempSync(join(root,'handoff-'))),topic=store.createTopic('[TEST] 阅览室延时公告');const source=store.addSource(topic.id,{kind:'article',platform:'web',title:'[TEST]公告',body:'阅览室将于十月一日开放至晚上九点。',url:'https://example.org/notice'});return {store,topic,source};}
+function setup(){const store=new Store(mkdtempSync(join(root,'handoff-'))),topic=store.createTopic('[TEST] 阅览室延时公告');const html=`<html><head><title>[TEST]公告</title></head><body><nav><img src="https://ads.example.org/banner.png"></nav><article><h1>[TEST]公告</h1><p>阅览室将于十月一日开放至晚上九点，方便上班族在下班后前来阅读和借还图书。</p><figure><img src="https://${topic.id}.example.org/photo.png" alt="阅览室"><figcaption>阅览室内景</figcaption></figure><p>工作人员表示，延长时段内借还书服务照常进行，读者可凭证入馆。</p></article><aside><img src="https://other.example.org/unrelated.png"></aside></body></html>`;const source=store.addSource(topic.id,{kind:'article',platform:'web',title:'[TEST]公告',body:'阅览室将于十月一日开放至晚上九点。',url:'https://example.org/notice',raw_hash:store.raw(html)});return {store,topic,source};}
 const noBenchmark=c=>Object.assign(c,{status:'none_found',items:[],gaps:[],consensus:[]});
 const withIncrements=d=>{const f=d.blocks.findIndex(b=>b.kind==='fact'&&b.refs.length);return {...d,increments:d.increments||[{type:'background',block_index:f,note:'测试背景'},{type:'impact',block_index:0,note:'测试影响'},{type:'counterintuitive',block_index:d.blocks.length-1,note:'测试判断'}]};};
 async function advance({store,topic,source},until='review'){
@@ -31,7 +31,7 @@ async function advance({store,topic,source},until='review'){
 async function addImage(fixture){
   const original=globalThis.fetch;
   globalThis.fetch=async()=>new Response(png,{headers:{'content-type':'image/png'}});
-  try{return await callTool(fixture.store,'collect_image',{topic_id:fixture.topic.id,source_id:fixture.source.id,url:`https://${fixture.topic.id}.example.org/photo.png`,caption:'[TEST]一像素测试图，不是新闻图片',credit:'Synthetic test fixture',usage_note:'仅用于软件测试',verified_scene:true,placement:'cover',platforms:['toutiao','penguin','baijiahao']});}
+  try{return await callTool(fixture.store,'collect_image',{topic_id:fixture.topic.id,source_id:fixture.source.id,url:`https://${fixture.topic.id}.example.org/photo.png`,caption:'[TEST]一像素测试图，不是新闻图片',credit:'Synthetic test fixture',usage_note:'仅用于软件测试',verified_scene:true,seen_description:'测试用一像素图片，没有真实画面内容',placement:'cover',platforms:['toutiao','penguin','baijiahao']});}
   finally{globalThis.fetch=original;}
 }
 async function reviewAgain(f){const task=await callTool(f.store,'claim_task',{topic_id:f.topic.id,actor:'test-agent'});assert.equal(task.task.stage,'review');await callTool(f.store,'submit_result',{topic_id:f.topic.id,stage:'review',actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:structuredClone(examples.review)});}
@@ -94,7 +94,7 @@ test('图片类型、内网地址与外话题来源在下载入口受到检查',
     globalThis.fetch=async()=>{calls++;return new Response('<html>Not an image</html>',{headers:{'content-type':'image/png'}});};
     await assert.rejects(fetchImage('http://127.0.0.1/image.png'),/不允许访问内网/);assert.equal(calls,0);
     await assert.rejects(fetchImage(`https://${f.topic.id}.example.org/bad.png`),/有效 PNG/);
-    await assert.rejects(callTool(f.store,'collect_image',{topic_id:f.topic.id,source_id:'s_foreign',url:'https://example.org/photo.png',caption:'测试',credit:'测试',usage_note:'测试',verified_scene:true,placement:'detail',platforms:['toutiao']}),/本话题/);
+    await assert.rejects(callTool(f.store,'collect_image',{topic_id:f.topic.id,source_id:'s_foreign',url:'https://example.org/photo.png',caption:'测试',credit:'测试',usage_note:'测试',verified_scene:true,seen_description:'测试用一像素图片，没有真实画面内容',placement:'detail',platforms:['toutiao']}),/本话题/);
     const candidates=imageCandidates('<meta property="og:image" content="/photo.jpg"><img src="/photo.jpg"><img src="/logo.png"><img src="javascript:bad()">','https://example.org/story');assert.deepEqual(candidates,['https://example.org/photo.jpg']);
   }finally{globalThis.fetch=original;f.store.close();}
 });
@@ -109,4 +109,14 @@ test('Web 交付 ZIP 和图片真实返回二进制，导出工具仍受会话�
     const image=await fetch(`${base}/api/images/${f.topic.id}/${saved.image.id}`);assert.equal(image.headers.get('content-type'),'image/png');assert.deepEqual(Buffer.from(await image.arrayBuffer()),png);
     assert.equal((await fetch(base+'/api/packs/unknown.zip')).status,400);
   }finally{await new Promise(r=>server.close(r));f.store.close();}
+});
+test('配图只能取自来源正文：图片搜索结果、侧栏/推荐区图片被拒，正文图带页面图注入库',async()=>{
+  const f=setup(),original=globalThis.fetch;globalThis.fetch=async()=>new Response(png,{headers:{'content-type':'image/png'}});
+  const base={topic_id:f.topic.id,source_id:f.source.id,caption:'测试',credit:'测试',usage_note:'测试',verified_scene:true,seen_description:'测试用一像素图片，没有真实画面内容',placement:'detail',platforms:['toutiao']};
+  try{
+    await assert.rejects(callTool(f.store,'collect_image',{...base,url:'https://img1.baidu.com/it/u=4208995601,2188993885'}),/不在来源原文页面里/);
+    await assert.rejects(callTool(f.store,'collect_image',{...base,url:'https://other.example.org/unrelated.png'}),/侧栏或推荐区/);
+    const ok=await callTool(f.store,'collect_image',{...base,url:`https://${f.topic.id}.example.org/photo.png`});
+    assert.equal(ok.image.in_article,true);assert.equal(ok.image.page_caption,'阅览室内景');assert.equal(ok.image.page_alt,'阅览室');
+  }finally{globalThis.fetch=original;f.store.close();}
 });

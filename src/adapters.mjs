@@ -73,6 +73,22 @@ export function imageCandidates(body,url){
   }
   return [...urls];
 }
+// Images on a page, article-body images first. in_article comes from Readability's article content,
+// so sidebar/recommendation photos (a common source of mismatched pictures) are flagged.
+export function articleImages(body,url){
+  const abs=src=>{if(!src)return null;try{const u=canonical(new URL(src,url).href);return /^https?:/.test(u)?u:null;}catch{return null;}};
+  const inArticle=new Set();
+  try{const {document}=parseHTML(body);document.querySelectorAll(PAGE_CHROME).forEach(el=>el.remove());const a=new Readability(document,{charThreshold:40}).parse();
+    if(a?.content){const $a=load(a.content);$a('img').each((_,el)=>{
+      // Thumbnails linking to another page are recommendation items, not article photos.
+      const href=$a(el).closest('a[href]').attr('href');if(href&&!/\.(jpe?g|png|webp|gif)(\?|$)/i.test(href))return;
+      const u=abs($a(el).attr('data-src')||$a(el).attr('data-original')||$a(el).attr('src'));if(u)inArticle.add(u);});}}catch{}
+  const $=load(body),out=new Map(),og=abs($('meta[property="og:image"]').attr('content'));
+  if(og)out.set(og,{url:og,alt:normalize($('meta[property="og:title"]').attr('content')),caption:'',in_article:inArticle.has(og),og:true});
+  $('img').each((_,el)=>{const e=$(el),u=abs(e.attr('data-src')||e.attr('data-original')||e.attr('src'));if(!u||/qrcode|ewm|logo|avatar|icon/i.test(u)||out.has(u))return;
+    out.set(u,{url:u,alt:normalize(e.attr('alt')||e.attr('title')),caption:normalize(e.closest('figure').find('figcaption').text()).slice(0,200),in_article:inArticle.has(u),og:false});});
+  return [...out.values()].sort((a,b)=>b.in_article-a.in_article).slice(0,30);
+}
 function readable(body){
   let text='';try{
     const {document}=parseHTML(body);document.querySelectorAll(PAGE_CHROME).forEach(el=>el.remove());
@@ -196,6 +212,6 @@ export class Adapters {
     if(!rows.length)throw new Error('没有获得可用正文，可能需要登录或页面不受支持；请导入正文/评论，不会把页面外壳算作采集成功');
     if(benchmark)rows=rows.filter(r=>r.kind!=='comment').map(r=>({...r,kind:'benchmark',metadata:{...r.metadata,tier:benchmark}}));
     const saved=rows.filter(r=>r.body||r.title).map(r=>this.store.addSource(id,{...r,metadata:{...r.metadata,verification:{status:'collected',at:now()}}}));
-    return {status:warnings.length?'partial':'ok',count:saved.filter(s=>!s.duplicate).length,total:saved.length,comments:rows.filter(r=>r.kind==='comment').length,source_ids:saved.map(s=>s.id),image_candidates:raw?.body?.includes('<')?imageCandidates(raw.body,raw.url):[],warnings};
+    return {status:warnings.length?'partial':'ok',count:saved.filter(s=>!s.duplicate).length,total:saved.length,comments:rows.filter(r=>r.kind==='comment').length,source_ids:saved.map(s=>s.id),image_candidates:raw?.body?.includes('<')?articleImages(raw.body,raw.url):[],warnings};
   }
 }

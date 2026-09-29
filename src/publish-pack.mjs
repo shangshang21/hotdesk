@@ -2,8 +2,8 @@ import {mkdirSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {createHash} from 'node:crypto';
 import {zipSync,strToU8} from 'fflate';
-import {canonical,hash,now,STAGES} from './store.mjs';
-import {fetchImage} from './adapters.mjs';
+import {canonical,hash,now,STAGES,TRUSTED_ORIGINS,verificationOf} from './store.mjs';
+import {fetchImage,articleImages} from './adapters.mjs';
 import {exportMarkdown,validate} from './pipeline.mjs';
 import {productionPolicy} from './production-policy.mjs';
 
@@ -17,10 +17,17 @@ export async function collectImage(store,id,input){
   const source=store.sources(id).find(s=>s.id===input.source_id);
   if(!source||!['article','post'].includes(source.kind)||!source.url)throw new Error('图片须关联本话题有原文链接的 article/post 来源');
   if(!input.verified_scene)throw new Error('请先查看图片并核对场景，不能仅凭文件名确认');
+  if(!TRUSTED_ORIGINS.includes(verificationOf(source)))throw new Error('图片来源文章未通过核验，不能取图');
+  // The picture must be on the source page itself, inside the article body (or its og:image cover).
+  let page='';try{page=source.raw_hash?store.readRaw(source.raw_hash):'';}catch{}
+  const want=canonical(input.url),path=u=>{try{const x=new URL(u);return x.host+x.pathname;}catch{return u;}};
+  const found=page.includes('<')?articleImages(page,source.url).find(i=>i.url===want||path(i.url)===path(want)):null;
+  if(!found)throw new Error('这张图不在来源原文页面里。请从 collect_url 返回的 image_candidates 里选图，不要用图片搜索结果配图');
+  if(!found.in_article&&!(found.og&&input.placement==='cover'))throw new Error('这张图在页面侧栏或推荐区，不在正文里，常与文章无关；请选 in_article=true 的图（og:image 只能作封面）');
   const r=await fetchImage(input.url);
   if(store.sources(id).find(s=>s.id===source.id)?.raw_hash!==source.raw_hash)throw new Error('下载期间来源已更新，请重新核对图片');
   const digest=createHash('sha256').update(r.bytes).digest('hex');
-  const metadata={...input,url:canonical(input.url),resolved_url:r.url,source_raw_hash:source.raw_hash,source_url:source.url,sha256:digest,filename:`${digest}.${r.extension}`};
+  const metadata={...input,page_alt:found.alt,page_caption:found.caption,in_article:found.in_article,url:canonical(input.url),resolved_url:r.url,source_raw_hash:source.raw_hash,source_url:source.url,sha256:digest,filename:`${digest}.${r.extension}`};
   const image={...metadata,id:`img_${hash(metadata).slice(0,16)}`,saved_at:now()};
   const images=imagesFor(store,id);if(images.some(i=>i.id===image.id))return {image:images.find(i=>i.id===image.id),duplicate:true};
   if(images.length>=36)throw new Error('本话题已达到36张图片快照限额');
