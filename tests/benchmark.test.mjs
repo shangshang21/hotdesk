@@ -51,3 +51,10 @@ test('查重：成稿与对标文章连续 20 字相同被拒；信息增量不�
   assert.throws(() => validate(s, t.id, 'write', wrong), /须落在带 Fact ID 的 fact 段/);
   s.close();
 });
+test('百度实时热搜：优先解析 s-data JSON，类名结构作后备', async () => {
+  const { parseBaiduBoard } = await import('../src/adapters.mjs');
+  const json = `<html><!--s-data:{"data":{"cards":[{"content":[{"word":"热点一","desc":"描述","url":"https://www.baidu.com/s?wd=a","hotScore":"100"}]}]}}--></html>`;
+  assert.deepEqual(parseBaiduBoard(json).map(i => [i.title, i.rank, i.metadata.hot_score]), [['热点一', 1, 100]]);
+  const html = '<div class="category-wrap_x"><div class="c-single-text-ellipsis">热点二</div><div class="hot-desc_y">说明 查看更多></div></div>';
+  assert.deepEqual(parseBaiduBoard(html).map(i => [i.title, i.body]), [['热点二', '说明']]);
+});

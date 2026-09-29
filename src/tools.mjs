@@ -3,14 +3,16 @@ import { Adapters } from './adapters.mjs';
 import { context, submit, exportMarkdown } from './pipeline.mjs';
 import {collectImage,buildPublishPack,imagesFor} from './publish-pack.mjs';
 import {verifySources} from './verify.mjs';
+import {rulesFull} from './rules.mjs';
 const stages=z.enum(['editor','research','opinion','benchmark','angles','write','review']);
 const id=z.string().min(1);
 const source=z.object({platform:z.string().min(1),kind:z.enum(['article','post','comment','hotlist','benchmark']),title:z.string().default(''),body:z.string().max(100000),url:z.string().default(''),external_id:z.string().optional(),published_at:z.string().optional(),metadata:z.record(z.unknown()).optional()});
 export const toolDefinitions={
+  get_rules:{description:'读取 Hotdesk 完整工作规则（素材核验、各工序要点、对标拆解、信息增量、配图）。第一次使用或被校验拒收时先读。',schema:{}},
   list_topics:{description:'列出热点、工序、初筛等级和素材数。无评分显示 null，不代表 B 级。',schema:{}},
   create_topic:{description:'人工/Agent 建立一个选题。',schema:{title:z.string().min(1).max(300)}},
   get_topic:{description:'查看一个话题全部素材、工序产物、引用、版本与运行事件。',schema:{topic_id:id}},
-  discover:{description:'从 bilibili/tieba/reddit/trendradar/rss:配置ID/newsnow:榜单ID 导入最多 50 个热点。上游失败会保留错误记录。',schema:{source:z.string(),limit:z.number().int().min(1).max(50).default(12)}},
+  discover:{description:'从 baidu/bilibili/tieba/reddit/trendradar/rss:配置ID/newsnow:榜单ID 导入最多 50 个热点。上游失败会保留错误记录。',schema:{source:z.string(),limit:z.number().int().min(1).max(50).default(12)}},
   search_posts:{description:'按词搜索 B站、贴吧、Reddit。小红书返回浏览器搜索入口与导入指引，不伪装匿名搜索能力。',schema:{platform:z.enum(['bilibili','tieba','reddit','xiaohongshu']),query:z.string().min(1).max(200),limit:z.number().int().min(1).max(20).default(8)}},
   collect_url:{description:'采集一条公开视频/帖子/文章链接到话题。评论采样有边界；登录/受阻会返回 partial 或失败。as_benchmark 填 authority（权威媒体/机构）或 viral（爆款自媒体）时作为对标文章入库：只用于拆解写法和查重，不作事实证据。',schema:{topic_id:id,url:z.string().url(),as_benchmark:z.enum(['authority','viral']).optional()}},
   import_sources:{description:'将实际读到的网页正文/评论导入。服务器会打开原链接核对内容：页面里找得到才标 verified；打不开或对不上标 unverified，unverified 素材不能作事实证据或观点来源。不得合成网友评论。添加资料会使旧分析失效。',schema:{topic_id:id,sources:z.array(source).min(1).max(50)}},
@@ -32,6 +34,7 @@ export async function tracked(store,kind,topic,input,fn){
 export async function callTool(store,name,args={},ctx={}){
   const def=toolDefinitions[name];if(!def)throw new Error('未知工具');const a=z.object(def.schema).strict().parse(args);const adapters=new Adapters(store);
   switch(name){
+    case 'get_rules':return {rules:rulesFull};
     case 'list_topics':return {topics:store.list()};
     case 'create_topic':return store.createTopic(a.title);
     case 'get_topic':return store.detail(a.topic_id);

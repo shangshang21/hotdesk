@@ -89,3 +89,12 @@ test('网页正文提取：Readability 去导航与推荐，尾部声明截断',
   const [row]=parsePage(html,'https://example.org/news');assert.equal(row.metadata.extractor,'readability');
   assert.match(row.body,/延长开放至晚上九点/);assert.doesNotMatch(row.body,/首页 新闻|无关推荐|特别声明/);
 });
+test('MCP 连接即下发规则：instructions、get_rules、rules 资源与 produce_topic 提示',async()=>{
+  const {dir}=setup();const client=new Client({name:'hotdesk-rules-test',version:'1'});const transport=new StdioClientTransport({command:process.execPath,args:[resolve('src/mcp.mjs')],env:{...process.env,HOTDESK_DATA:dir},stderr:'pipe'});
+  try{await client.connect(transport);
+    assert.match(client.getInstructions(),/不编造任何东西/);assert.match(client.getInstructions(),/get_rules/);
+    const rules=JSON.parse((await client.callTool({name:'get_rules',arguments:{}})).content[0].text).rules;assert.match(rules,/信息增量/);assert.match(rules,/对标拆解/);
+    const res=await client.readResource({uri:'hotdesk://rules'});assert.equal(res.contents[0].text,rules);
+    const prompt=await client.getPrompt({name:'produce_topic',arguments:{topic_id:'t_x'}});assert.match(prompt.messages[0].content.text,/话题 t_x/);
+  }finally{await client.close();}
+});

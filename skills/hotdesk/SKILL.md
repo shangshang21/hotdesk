@@ -5,6 +5,8 @@ description: Produce Hotdesk hotspot content from discovery through sourced rese
 
 # Hotdesk production
 
+**Read `AGENT_RULES.md` (or call the `get_rules` tool) first. It is the canonical rule set shared by every agent; server validation enforces it.** Key hard rules: never invent sources, links, comments or numbers (agent imports are re-checked against the live page); benchmark articles teach structure, never sentences (20-char copy check); each draft needs ≥3 information increments; images only from the source article body.
+
 Use the `hotdesk` MCP tools if connected. Otherwise run the project CLI from the Hotdesk root: `node src/cli.mjs tools` and `node src/cli.mjs <tool_name> --file input.json`. Write UTF-8 JSON files for complex inputs on Windows. Data resolves relative to the installed server script, not the client's current directory. `HOTDESK_DATA` can explicitly select a different workspace.
 
 ## Operate an existing topic

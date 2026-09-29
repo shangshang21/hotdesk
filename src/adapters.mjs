@@ -126,6 +126,13 @@ export function parsePage(body,url) {
   const article=readable(body),text=normalize(trimTail(article||fallbackText($)));
   return text.length>=40?[{platform:'web',kind:'article',title:title||url,body:text.slice(0,60000),url,metadata:{extractor:article?'readability':'fallback'}}]:[];
 }
+export function parseBaiduBoard(body){
+  const m=body.match(/<!--s-data:([\s\S]*?)-->/);
+  try{const list=JSON.parse(m[1]).data.cards[0].content;if(Array.isArray(list)&&list.length)return list.filter(v=>v.word).map((v,i)=>({title:normalize(v.word),url:v.url||`https://www.baidu.com/s?wd=${encodeURIComponent(v.word)}`,body:normalize(v.desc),rank:i+1,platform:'baidu',metadata:{hot_score:Number(v.hotScore)||null,rank_type:'baidu_realtime_rank'}}));}catch{}
+  const $=load(body),items=[];
+  $('[class*="category-wrap"]').each((i,el)=>{const title=normalize($(el).find('[class*="c-single-text-ellipsis"]').first().text());if(title)items.push({title,url:`https://www.baidu.com/s?wd=${encodeURIComponent(title)}`,body:normalize($(el).find('[class*="hot-desc"]').text()).replace(/\s*查看更多>.*$/,''),rank:items.length+1,platform:'baidu',metadata:{rank_type:'baidu_realtime_rank'}});});
+  return items;
+}
 export class Adapters {
   constructor(store){this.store=store;}
   async discover(source,limit=12){
@@ -137,6 +144,9 @@ export class Adapters {
       raw=await fetchRaw(this.store,'https://tieba.baidu.com/hottopic/browse/topicList');
       const list=json(raw).data?.bang_topic?.topic_list;if(!Array.isArray(list))throw new Error('贴吧热议榜格式已变化');
       items=list.slice(0,limit).map((v,i)=>({title:v.topic_name,url:v.topic_url.replaceAll('&amp;','&'),body:v.topic_desc,rank:v.idx_num||i+1,platform:'tieba',published_at:epoch(v.create_time),metadata:{reported_discuss_num:v.discuss_num,rank_type:'hot_topic_rank'}}));
+    }else if(source==='baidu'){
+      // Direct Baidu realtime board (no NewsNow needed). Prefer the embedded s-data JSON; class names are a fallback.
+      raw=await fetchRaw(this.store,'https://top.baidu.com/board?tab=realtime');items=parseBaiduBoard(raw.body).slice(0,limit);
     }else if(source==='reddit'){
       raw=await this.redditRequest('/r/popular/hot',`limit=${limit}`);
       items=json(raw).data?.children?.filter(x=>x.kind==='t3').map((x,i)=>({title:x.data.title,url:`https://www.reddit.com${x.data.permalink}`,body:x.data.selftext||'',rank:i+1,platform:'reddit',published_at:epoch(x.data.created_utc),metadata:{score:x.data.score,num_comments:x.data.num_comments,rank_type:'hot_feed_order'}}));
