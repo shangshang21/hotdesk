@@ -55,7 +55,7 @@ test('真实文件下载路径、图片更新重审、三平台纯文本及 ZIP 
     const files=unzipSync(readFileSync(join(f.store.dir,'publish-packs',pack.zip_name)));
     for(const platform of ['toutiao','penguin','baijiahao']){
       assert.ok(files[`${platform}/标题.txt`]);assert.ok(files[`${platform}/正文.txt`]);assert.deepEqual(Buffer.from(files[`${platform}/images/01_cover.png`]),png);
-      assert.doesNotMatch(strFromU8(files[`${platform}/正文.txt`]),/\[F1\]|待人工审核|事实与来源/);
+      assert.doesNotMatch(strFromU8(files[`${platform}/正文.txt`]),/\[F1\]|待人工审核|事实与来源/);assert.match(strFromU8(files[`${platform}/正文.txt`]),/信息来源：example\.org$/);
     }
     assert.ok(files['审核资料.md']);assert.equal(JSON.parse(strFromU8(files['manifest.json'])).ready_for_handoff,true);
     assert.equal((await callTool(f.store,'list_images',{topic_id:f.topic.id})).images[0].id,saved.image.id);

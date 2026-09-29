@@ -8,6 +8,15 @@ import {exportMarkdown,validate} from './pipeline.mjs';
 import {productionPolicy} from './production-policy.mjs';
 
 const names={toutiao:'今日头条',penguin:'企鹅号',baijiahao:'百家号'};
+// Current-affairs posts must show where the information came from; build it from the facts the draft cites.
+const SITES={'xinhuanet.com':'新华网','news.cn':'新华网','people.com.cn':'人民网','cctv.com':'央视网','cntv.cn':'央视网','gmw.cn':'光明网','thepaper.cn':'澎湃新闻','chinanews.com.cn':'中国新闻网','163.com':'网易','sina.cn':'新浪','sina.com.cn':'新浪','qq.com':'腾讯网','ifeng.com':'凤凰网','jiemian.com':'界面新闻','caixin.com':'财新','bilibili.com':'哔哩哔哩','baidu.com':'百度'};
+export function sourceLine(store,id,draft){
+  const facts=new Map((store.latest(id,'research')?.content.facts||[]).map(f=>[f.id,f])),sources=new Map(store.sources(id).map(s=>[s.id,s]));
+  const refs=new Set([...draft.title_refs,...draft.blocks.flatMap(b=>b.refs)]),labels=new Set();
+  for(const ref of refs)for(const e of facts.get(ref)?.evidence||[]){const s=sources.get(e.source_id);if(!s?.url)continue;let host='';try{host=new URL(s.url).hostname;}catch{continue;}
+    const site=Object.keys(SITES).find(d=>host===d||host.endsWith(`.${d}`));labels.add(site?SITES[site]:host.replace(/^www\./,''));}
+  return labels.size?`信息来源：${[...labels].join('、')}`:'';
+}
 export function imagesFor(store,id){store.topic(id);return store.setting(`images:${id}`,[]);}
 export function imageFile(store,image){
   if(!/^[a-f0-9]{64}\.(png|jpg|webp)$/.test(image.filename))throw new Error('无效图片文件记录');
@@ -69,7 +78,8 @@ export function buildPublishPack(store,id,platforms=productionPolicy.platforms){
     }
     if(!selected.length)warnings.push(`${names[platform]}缺少已核对并下载的配图`);
     writeText(`${platform}/标题.txt`,draft.title);
-    writeText(`${platform}/正文.txt`,draft.blocks.map(b=>b.text).join('\n\n'));
+    const credit=sourceLine(store,id,draft);if(!credit)warnings.push(`${names[platform]}正文没有可标注的信息来源（时事类内容须标注）`);
+    writeText(`${platform}/正文.txt`,[...draft.blocks.map(b=>b.text),credit].filter(Boolean).join('\n\n'));
     writeText(`${platform}/插图说明.txt`,selected.map(i=>`${i.file}\n位置：${i.after_paragraph===0?'标题后、正文前':`正文第${i.after_paragraph}段后`}\n图注：${i.caption}\n署名：${i.credit}\n来源：${i.source_url}\n使用说明：${i.usage_note}`).join('\n\n')||'暂缺配图，交付包不完整');
     packs.push({platform,name:names[platform],title:draft.title,body:draft.blocks.map(b=>b.text).join('\n\n'),images:selected,title_file:`${platform}/标题.txt`,body_file:`${platform}/正文.txt`});
   }
