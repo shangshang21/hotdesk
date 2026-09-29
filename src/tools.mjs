@@ -3,16 +3,16 @@ import { Adapters } from './adapters.mjs';
 import { context, submit, exportMarkdown } from './pipeline.mjs';
 import {collectImage,buildPublishPack,imagesFor} from './publish-pack.mjs';
 import {verifySources} from './verify.mjs';
-const stages=z.enum(['editor','research','opinion','angles','write','review']);
+const stages=z.enum(['editor','research','opinion','benchmark','angles','write','review']);
 const id=z.string().min(1);
-const source=z.object({platform:z.string().min(1),kind:z.enum(['article','post','comment','hotlist']),title:z.string().default(''),body:z.string().max(100000),url:z.string().default(''),external_id:z.string().optional(),published_at:z.string().optional(),metadata:z.record(z.unknown()).optional()});
+const source=z.object({platform:z.string().min(1),kind:z.enum(['article','post','comment','hotlist','benchmark']),title:z.string().default(''),body:z.string().max(100000),url:z.string().default(''),external_id:z.string().optional(),published_at:z.string().optional(),metadata:z.record(z.unknown()).optional()});
 export const toolDefinitions={
   list_topics:{description:'列出热点、工序、初筛等级和素材数。无评分显示 null，不代表 B 级。',schema:{}},
   create_topic:{description:'人工/Agent 建立一个选题。',schema:{title:z.string().min(1).max(300)}},
   get_topic:{description:'查看一个话题全部素材、工序产物、引用、版本与运行事件。',schema:{topic_id:id}},
   discover:{description:'从 bilibili/tieba/reddit/trendradar/rss:配置ID/newsnow:榜单ID 导入最多 50 个热点。上游失败会保留错误记录。',schema:{source:z.string(),limit:z.number().int().min(1).max(50).default(12)}},
   search_posts:{description:'按词搜索 B站、贴吧、Reddit。小红书返回浏览器搜索入口与导入指引，不伪装匿名搜索能力。',schema:{platform:z.enum(['bilibili','tieba','reddit','xiaohongshu']),query:z.string().min(1).max(200),limit:z.number().int().min(1).max(20).default(8)}},
-  collect_url:{description:'采集一条公开视频/帖子/文章链接到话题。评论采样有边界；登录/受阻会返回 partial 或失败。',schema:{topic_id:id,url:z.string().url()}},
+  collect_url:{description:'采集一条公开视频/帖子/文章链接到话题。评论采样有边界；登录/受阻会返回 partial 或失败。as_benchmark 填 authority（权威媒体/机构）或 viral（爆款自媒体）时作为对标文章入库：只用于拆解写法和查重，不作事实证据。',schema:{topic_id:id,url:z.string().url(),as_benchmark:z.enum(['authority','viral']).optional()}},
   import_sources:{description:'将实际读到的网页正文/评论导入。服务器会打开原链接核对内容：页面里找得到才标 verified；打不开或对不上标 unverified，unverified 素材不能作事实证据或观点来源。不得合成网友评论。添加资料会使旧分析失效。',schema:{topic_id:id,sources:z.array(source).min(1).max(50)}},
   get_task:{description:'读取下一步（或指定工序）的资料、提示和 JSON 输出范例；不领取写入权。',schema:{topic_id:id,stage:stages.optional()}},
   claim_task:{description:'为当前下一工序领取 20 分钟租约，返回 claim_id、basis 和完整资料。一个话题同时只允许一个 Agent 写入。',schema:{topic_id:id,actor:z.string().min(1).max(150)}},
@@ -37,7 +37,7 @@ export async function callTool(store,name,args={},ctx={}){
     case 'get_topic':return store.detail(a.topic_id);
     case 'discover':return tracked(store,name,null,a,()=>adapters.discover(a.source,a.limit));
     case 'search_posts':return tracked(store,name,null,a,()=>adapters.search(a.platform,a.query,a.limit));
-    case 'collect_url':return tracked(store,name,a.topic_id,a,()=>adapters.collect(a.topic_id,a.url));
+    case 'collect_url':return tracked(store,name,a.topic_id,a,()=>adapters.collect(a.topic_id,a.url,{benchmark:a.as_benchmark}));
     case 'import_sources':{store.topic(a.topic_id);const checked=await verifySources(store,a.sources,ctx.origin);
       const saved=checked.map(({verification,...s})=>store.addSource(a.topic_id,{...s,metadata:{...s.metadata,imported:true,verification}}));
       return {sources:saved.map((s,i)=>({id:s.id,duplicate:!!s.duplicate,verification:checked[i].verification})),unverified:checked.filter(s=>s.verification.status==='unverified').length};}

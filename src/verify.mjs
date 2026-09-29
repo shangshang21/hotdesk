@@ -3,7 +3,7 @@ import { fetchRaw } from './adapters.mjs';
 import { canonical, now, normalize } from './store.mjs';
 
 // Compare on letters/digits only, so punctuation or spacing changes don't matter.
-const squash = (s) => normalize(s).replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+export const squash = (s) => normalize(s).replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
 
 // Pick up to 3 evenly spaced 12-char probes from the imported text.
 export function probes(body, size = 12) {

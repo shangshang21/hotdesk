@@ -12,14 +12,17 @@ const {createApp}=await import('../src/server.mjs');
 const root=resolve('../../work/hotdesk-tests');mkdirSync(root,{recursive:true});
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZkAAAAASUVORK5CYII=','base64');
 function setup(){const store=new Store(mkdtempSync(join(root,'handoff-'))),topic=store.createTopic('[TEST] 阅览室延时公告');const source=store.addSource(topic.id,{kind:'article',platform:'web',title:'[TEST]公告',body:'阅览室将于十月一日开放至晚上九点。',url:'https://example.org/notice'});return {store,topic,source};}
+const noBenchmark=c=>Object.assign(c,{status:'none_found',items:[],gaps:[],consensus:[]});
+const withIncrements=d=>{const f=d.blocks.findIndex(b=>b.kind==='fact'&&b.refs.length);return {...d,increments:d.increments||[{type:'background',block_index:f,note:'测试背景'},{type:'impact',block_index:0,note:'测试影响'},{type:'counterintuitive',block_index:d.blocks.length-1,note:'测试判断'}]};};
 async function advance({store,topic,source},until='review'){
-  for(const stage of ['editor','research','opinion','angles','write','review']){
+  for(const stage of ['editor','research','opinion','benchmark','angles','write','review']){
     const c=structuredClone(examples[stage]);
     if(stage==='editor')c.reader_entry={new_information:'测试延时公告',target_reader:'下班后阅读的人',stake:'开放时间',evidence_source_ids:[source.id],missing_questions:[]};
     if(stage==='research'){c.facts=[{id:'F1',claim:'测试公告称阅览室十月一日延时开放',status:'confirmed',evidence:[{source_id:source.id,quote:'晚上九点'}],reason:'测试原文'}];c.causal_chains=[{from:'开放时间调整',to:'可用时段变化',mechanism:'开门时间延长',fact_ids:['F1'],uncertainty:'未测使用人数'}];c.scenarios=[{premise:'按公告执行',result:'晚间时段可用',watch_for:['后续公告'],invalidators:['计划取消'],fact_ids:['F1']}];}
     if(stage==='opinion'){c.status='insufficient';c.focus=[];c.keywords=[];}
     if(stage==='angles'){c.angles[0].opinion_ids=[];Object.assign(c.angles[0],{reader_promise:'了解新时间',core_contrast:'以前与新时段',template:'explanation',fulfillment:'正文交代公告时间'});}
     if(stage==='write')c.drafts=['toutiao','penguin','baijiahao'].map((platform,index)=>({platform,title:['阅览室延时，下班后多了阅读时间','从下班到读书：阅览室的新时段','阅览室几点关门？公告给出新时间'][index],title_refs:['F1'],blocks:[{kind:'transition',text:['下班后的读书时间有了新变化。','公告里的一处时间调整，关系到晚间阅读。','想在晚间使用阅览室，先看最新公告。'][index],refs:[]},{kind:'fact',text:'[TEST]公告称十月一日起开放至晚上九点。',refs:['F1']}]}));
+    if(stage==='benchmark')noBenchmark(c);if(stage==='write')c.drafts=c.drafts.map(withIncrements);
     const task=await callTool(store,'claim_task',{topic_id:topic.id,actor:'test-agent'});
     await callTool(store,'submit_result',{topic_id:topic.id,stage,actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:c});
     if(stage===until)break;

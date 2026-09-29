@@ -2,7 +2,7 @@ import {mkdirSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {createHash} from 'node:crypto';
 import {zipSync,strToU8} from 'fflate';
-import {canonical,hash,now} from './store.mjs';
+import {canonical,hash,now,STAGES} from './store.mjs';
 import {fetchImage} from './adapters.mjs';
 import {exportMarkdown,validate} from './pipeline.mjs';
 import {productionPolicy} from './production-policy.mjs';
@@ -28,7 +28,7 @@ export async function collectImage(store,id,input){
   const file=imageFile(store,image);if(!existsSync(file))writeFileSync(file,r.bytes);
   store.transaction(()=>{
     store.setSetting(`images:${id}`,[...images,image]);
-    store.invalidate(id,6,'图片新增，需核对图文并重新审稿');
+    store.invalidate(id,STAGES.indexOf('review'),'图片新增，需核对图文并重新审稿');
     store.event(id,'image_saved',{id:image.id,sha256:digest,source_id:source.id,url:image.url});
   });
   return {image,duplicate:false,next:store.next(id)};

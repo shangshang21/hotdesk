@@ -13,17 +13,19 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const root=resolve('../../work/hotdesk-tests');mkdirSync(root,{recursive:true});
 function setup(){const dir=mkdtempSync(join(root,'case-')),s=new Store(dir),t=s.createTopic('[TEST] 社区阅览室调整开放时间');const source=s.addSource(t.id,{kind:'article',platform:'web',title:'测试公告',url:'https://example.org/notice',body:'社区阅览室将于十月一日起延长开放至晚上九点。'});const comment=s.addSource(t.id,{kind:'comment',platform:'tieba',title:'测试评论',url:'https://example.org/comment/1',body:'下班后终于能去看书了。'});return {s,t,source,comment,dir};}
-function content(stage,source,comment){const c=structuredClone(examples[stage]);if(stage==='editor')c.metrics.freshness.score=80;
+const noBenchmark=c=>Object.assign(c,{status:'none_found',items:[],gaps:[],consensus:[]});
+const withIncrements=d=>{const f=d.blocks.findIndex(b=>b.kind==='fact'&&b.refs.length);return {...d,increments:d.increments||[{type:'background',block_index:f,note:'测试背景'},{type:'impact',block_index:0,note:'测试影响'},{type:'counterintuitive',block_index:d.blocks.length-1,note:'测试判断'}]};};
+function content(stage,source,comment){const c=structuredClone(examples[stage]);if(stage==='benchmark')noBenchmark(c);if(stage==='editor')c.metrics.freshness.score=80;
   if(stage==='research')c.facts=[{id:'F1',claim:'测试公告称阅览室十月一日起开放至晚九点。',status:'confirmed',evidence:[{source_id:source.id,quote:'延长开放至晚上九点'}],reason:'公告原文'}];
   if(stage==='opinion')c.focus=[{id:'O1',text:'该样本关心下班后的使用时间。',source_ids:[comment.id]}];
   return c;
 }
 async function advance(s,t,source,comment,until='review'){
-  for(const stage of ['editor','research','opinion','angles','write','review']){const task=await callTool(s,'claim_task',{topic_id:t.id,actor:'test-agent'});await callTool(s,'submit_result',{topic_id:t.id,stage,actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:content(stage,source,comment)});if(stage===until)break;}
+  for(const stage of ['editor','research','opinion','benchmark','angles','write','review']){const task=await callTool(s,'claim_task',{topic_id:t.id,actor:'test-agent'});await callTool(s,'submit_result',{topic_id:t.id,stage,actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:content(stage,source,comment)});if(stage===until)break;}
 }
 test('完整流水线、引用导出、人工确认、数据更新失效、重启持久性',async()=>{
   const {s,t,source,comment,dir}=setup();await advance(s,t,source,comment);assert.equal(s.next(t.id),'done');assert.match(exportMarkdown(s,t.id),/待人工审核/);const approved=s.approve(t.id);assert.equal(s.topic(t.id).approved_artifact,approved);
-  assert.match(exportMarkdown(s,t.id),/人工已确认/);s.addSource(t.id,{kind:'article',platform:'web',title:'更正',url:'https://example.org/update',body:'开放时间进一步调整，请以更正为准。'});assert.equal(s.next(t.id),'editor');assert.equal(s.topic(t.id).approved_artifact,null);assert.equal(s.artifacts(t.id).length,6);assert.ok(s.artifacts(t.id).every(a=>!a.valid));s.close();const reopened=new Store(dir);assert.equal(reopened.sources(t.id).length,3);assert.equal(reopened.artifacts(t.id).length,6);reopened.close();
+  assert.match(exportMarkdown(s,t.id),/人工已确认/);s.addSource(t.id,{kind:'article',platform:'web',title:'更正',url:'https://example.org/update',body:'开放时间进一步调整，请以更正为准。'});assert.equal(s.next(t.id),'editor');assert.equal(s.topic(t.id).approved_artifact,null);assert.equal(s.artifacts(t.id).length,7);assert.ok(s.artifacts(t.id).every(a=>!a.valid));s.close();const reopened=new Store(dir);assert.equal(reopened.sources(t.id).length,3);assert.equal(reopened.artifacts(t.id).length,7);reopened.close();
 });
 test('拒绝伪造引文、评论冒充事实、未列入资料包的事实和未知事实入稿',async()=>{
   const {s,t,source,comment}=setup();const c=content('research',source,comment);c.facts[0].evidence[0].quote='不存在的原文';assert.throws(()=>validate(s,t.id,'research',c),/未在原始素材/);c.facts[0].evidence[0]={source_id:comment.id,quote:comment.body};assert.throws(()=>validate(s,t.id,'research',c),/评论或热榜/);

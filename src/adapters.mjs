@@ -171,7 +171,7 @@ export class Adapters {
     else throw new Error('不支持的平台');
     return {platform,status:items.length?'ok':'empty',items,raw_hash:raw.raw_hash,message:items.length?'仅检索结果，需采集正文和评论':'未解析到结果，可能是无结果或页面结构变化'};
   }
-  async collect(id,url){
+  async collect(id,url,{benchmark}={}){
     this.store.topic(id);const u=new URL(canonical(url));let rows=[],raw;const warnings=[];
     if(hostIs(u.hostname,'bilibili.com')&&/\/video\/(BV[\w]+)/.test(u.pathname)){
       const bvid=u.pathname.match(/\/video\/(BV[\w]+)/)[1];raw=await fetchRaw(this.store,`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`);const v=biliData(raw);
@@ -194,6 +194,7 @@ export class Adapters {
       if(hostIs(u.hostname,'xiaohongshu.com')||u.hostname==='xhslink.com')warnings.push('小红书仅尝试公开分享页正文；评论需通过浏览器可见内容导入');
     }
     if(!rows.length)throw new Error('没有获得可用正文，可能需要登录或页面不受支持；请导入正文/评论，不会把页面外壳算作采集成功');
+    if(benchmark)rows=rows.filter(r=>r.kind!=='comment').map(r=>({...r,kind:'benchmark',metadata:{...r.metadata,tier:benchmark}}));
     const saved=rows.filter(r=>r.body||r.title).map(r=>this.store.addSource(id,{...r,metadata:{...r.metadata,verification:{status:'collected',at:now()}}}));
     return {status:warnings.length?'partial':'ok',count:saved.filter(s=>!s.duplicate).length,total:saved.length,comments:rows.filter(r=>r.kind==='comment').length,source_ids:saved.map(s=>s.id),image_candidates:raw?.body?.includes('<')?imageCandidates(raw.body,raw.url):[],warnings};
   }
