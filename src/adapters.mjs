@@ -12,7 +12,7 @@ const waits = new Map();
 const epoch = n => Number.isFinite(Number(n)) && Number(n)>0 ? new Date(Number(n)*1000).toISOString() : null;
 const hostIs = (host, domain) => host === domain || host.endsWith(`.${domain}`);
 const blockedIP = ip => /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip) || ip==='::1' || /^(fc|fd|fe80|::ffff:)/i.test(ip);
-export async function fetchRaw(store,url,{allowLocal=false,headers={}}={}) {
+async function fetchBytes(url,{allowLocal=false,headers={},maxBytes=3*1024*1024}={}) {
   let current=canonical(url);
   for(let redirects=0;redirects<4;redirects++) {
     const u=new URL(current),host=u.hostname.replace(/^\[|\]$/g,'');
@@ -24,11 +24,8 @@ export async function fetchRaw(store,url,{allowLocal=false,headers={}}={}) {
     const r=await fetch(current,{redirect:'manual',signal:AbortSignal.timeout(20000),headers:{'User-Agent':'HotdeskLocal/0.1 (personal research; bounded sampling)','Accept':'application/json,text/html,application/rss+xml,application/atom+xml;q=0.9',...headers}});
     if(r.status>=300&&r.status<400&&r.headers.get('location')){const dest=new URL(r.headers.get('location'),current);if(dest.origin!==u.origin&&headers.Authorization)throw new Error('拒绝向其他站点转发认证信息');current=dest.href;continue;}
     const reader=r.body.getReader(); const chunks=[];let size=0;
-    for(;;){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>3*1024*1024){await reader.cancel();throw new Error('响应超过 3MB 限额');}chunks.push(value);}
-    const body=new TextDecoder().decode(Buffer.concat(chunks));const raw_hash=store.raw(body,{url:current,http_status:r.status});
-    if(!r.ok)throw new Error(`HTTP ${r.status}：来源未允许此次访问；快照 ${raw_hash.slice(0,12)}。可使用授权接口或手动导入。`);
-    if(/<title>[^<]*(验证|安全|captcha|Attention Required)/i.test(body))throw new Error('来源返回验证页，未将其当作素材');
-    return {body,raw_hash,url:current};
+    for(;;){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>maxBytes){await reader.cancel();throw new Error(`响应超过 ${maxBytes/1024/1024}MB 限额`);}chunks.push(value);}
+    return {bytes:Buffer.concat(chunks),url:current,status:r.status,ok:r.ok,content_type:r.headers.get('content-type')||''};
   }
   throw new Error('重定向次数超限');
 }
@@ -50,6 +47,30 @@ function paragraphText($,root){
   root.find('br').replaceWith('\n');
   root.find('p,div,section,article,main,blockquote,li,h1,h2,h3,h4,h5,h6').each((_,el)=>{$(el).prepend('\n').append('\n');});
   return root.text().split(/\r?\n/).map(normalize).filter(Boolean).join('\n');
+}
+export async function fetchRaw(store,url,options={}) {
+  const r=await fetchBytes(url,options),body=new TextDecoder().decode(r.bytes);
+  const raw_hash=store.raw(body,{url:r.url,http_status:r.status});
+  if(!r.ok)throw new Error(`HTTP ${r.status}：来源未允许此次访问；快照 ${raw_hash.slice(0,12)}。可使用授权接口或手动导入。`);
+  if(/<title>[^<]*(验证|安全|captcha|Attention Required)/i.test(body))throw new Error('来源返回验证页，未将其当作素材');
+  return {body,raw_hash,url:r.url};
+}
+export async function fetchImage(url){
+  const r=await fetchBytes(url,{maxBytes:8*1024*1024});
+  if(!r.ok)throw new Error(`图片 HTTP ${r.status}`);
+  const b=r.bytes;
+  const extension=b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))?'png':b[0]===255&&b[1]===216&&b[2]===255?'jpg':b.subarray(0,4).toString()==='RIFF'&&b.subarray(8,12).toString()==='WEBP'?'webp':null;
+  if(!extension||b.length<24||!/^image\/(png|jpeg|webp)(?:;|$)/i.test(r.content_type))throw new Error('未取得有效 PNG/JPEG/WebP 图片；不接受网页、验证页或 SVG');
+  return {...r,extension};
+}
+export function imageCandidates(body,url){
+  const $=load(body),urls=new Set();
+  for(const src of [$('meta[property="og:image"]').attr('content'),...$('img').toArray().map(el=>$(el).attr('src')||$(el).attr('data-src'))]){
+    if(!src||/qrcode|ewm|logo/i.test(src))continue;
+    try{urls.add(canonical(new URL(src,url).href));}catch{}
+    if(urls.size>=20)break;
+  }
+  return [...urls];
 }
 function readable(body){
   let text='';try{
@@ -173,6 +194,6 @@ export class Adapters {
     }
     if(!rows.length)throw new Error('没有获得可用正文，可能需要登录或页面不受支持；请导入正文/评论，不会把页面外壳算作采集成功');
     const saved=rows.filter(r=>r.body||r.title).map(r=>this.store.addSource(id,r));
-    return {status:warnings.length?'partial':'ok',count:saved.filter(s=>!s.duplicate).length,total:saved.length,comments:rows.filter(r=>r.kind==='comment').length,source_ids:saved.map(s=>s.id),warnings};
+    return {status:warnings.length?'partial':'ok',count:saved.filter(s=>!s.duplicate).length,total:saved.length,comments:rows.filter(r=>r.kind==='comment').length,source_ids:saved.map(s=>s.id),image_candidates:raw?.body?.includes('<')?imageCandidates(raw.body,raw.url):[],warnings};
   }
 }

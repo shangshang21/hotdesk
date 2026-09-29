@@ -6,13 +6,40 @@
 
 这是可运行的流程版，采集平台覆盖仍有明确边界，见下表。页面有真实运行记录，不会把受阻请求显示成已抓到数据。
 
-## ⚠️ 注意事项（2026-09-28 更新后必读）
+## 默认生产方式（2026-09-29）
+
+以后让接入本项目的 Agent 生产一个选题，默认完成「读者利益初筛 → 原始来源核实 → 真实讨论 → 自动选择有依据的角度 → 三平台分别写稿 → 核对并保存真实配图 → 最终审稿 → 交付 ZIP」。用户不必反复说明文风、平台或插图安排；明确指定范围和已有人工修改仍优先。完整操作规则维护在 `skills/hotdesk/SKILL.md`，每次工序资料也携带 `production_policy`。
+
+- 今日头条用结果、反差与真实分歧切入；企鹅号用可核实的事件变化组织故事；百家号回答具体问题并解释证据。这是待验证的内容模板，不是固定年龄画像或流量保证。
+- 标题吸引点击，但承诺必须在正文兑现。旧事不能写成“刚刚”；分析保留前提、依据、观察指标和失效条件。素材决定长度，不强制日更长文、二选一站队或固定领域。
+- 每平台通常 1–3 张真实相关配图，保存图片文件、原文来源、图注、署名与使用说明；不凑九张，也不以改文件名/裁剪声称可以规避重复检测。公开来源不等于拥有转载许可，Agent 要核对适用的使用范围。
+- 看板增加「交付包 / 标题正文与图片」：三个平台分别有复制标题、复制纯正文入口，并可下载 ZIP。ZIP 里的标题、正文不混入审核过程说明，来源与引用单独保存在审核资料和 manifest。
+- `ready_for_handoff` 表示所选平台稿件、已核对图片及检查齐备；缺图、缺稿、未通过审稿或文件损坏会标为待补全。它不等于人工确认或已发布。用户看一遍后在平台手动粘贴并上传图片。
+
+交付目录：
+
+```text
+toutiao/、penguin/、baijiahao/
+  标题.txt
+  正文.txt
+  插图说明.txt
+  images/                 # 可直接上传的图片文件
+审核资料.md               # 来源和过程，与正文分开
+manifest.json             # 稿件版本、图片哈希、来源与完整性状态
+发布说明.txt
+```
+
+`collect_url` 可返回网页里的候选图片链接；候选图不代表已经核验。Agent 先查看并核对后调用 `collect_image`，再审稿，最后调用 `export_publish_pack`。新增图片使原审稿和人工确认失效，历史结果及图片记录保留。图片文件保存在 `data/images/`，交付文件夹及 ZIP 保存在 `data/publish-packs/`；它们不上传 GitHub。
+
+本次验证使用明确标注的合成选题和测试 PNG，验证的是文件、版本与交付流程；并未把测试图当新闻配图，也未进行真实模型调用或账号发布。后续生产仍由已接入、具备实际搜索和看图能力的 Agent 执行。独立模型按钮目前只推进已有材料的六道文字工序，配图核验及完整交付由 Agent 补齐。
+
+## 更新与历史验收记录
 
 **Windows 上更新步骤**（顺序不要乱）：
 
 1. `git pull` 拉取最新代码。
-2. `npm ci` —— 新增了依赖 `@mozilla/readability`、`linkedom`，不装会启动报错。
-3. 删掉 `.claude/skills/hotdesk` 和 `.agents/skills/hotdesk` 两个文件夹，再运行 `npm run setup:agents`。脚本不会覆盖已有的旧版说明，不删的话 Agent 仍按旧的写稿规则干活。
+2. `npm ci` —— 安装锁定依赖，包括正文提取和 ZIP 打包所需的依赖。
+3. 运行 `npm run setup:agents -- --refresh-skills`：先备份旧 skill 副本，再生成指向项目统一规则的入口。无需删除文件夹；后续更新会读取项目当前规则。脚本仍保护不同的 MCP 配置，不修改全局客户端设置。
 4. 重启 Hotdesk（`Stop.cmd` → `Start.cmd`），并重启正在连接的 Agent 客户端。
 
 **NewsNow 热榜**
@@ -63,7 +90,7 @@ GitHub 仓库只包含源码、启动器、说明和公开素材样例，不包�
 3. 点击「交给 Agent 继续」，把指令交给已接入项目的 Agent。看板每四秒同步一次结果。
 4. 工序依次显示：素材采集、热点初筛、事实素材、网友讨论、角度与标题、正文生产、成稿检查。
 5. 选角度、编辑 JSON 结果、重跑某一步均会使相应下游失效，旧版本仍可在「过程与版本」查看。失败的编辑不会覆盖旧结果。
-6. 导出 Markdown 可在人工确认前进行，但文件会标记待审核。人工确认只记录本地状态，不发布。
+6. Agent 完成配图和审稿后，用「交付包 / 标题正文与图片」复制或下载。缺少必要内容会列出待补项。Markdown 审核稿也可独立导出；人工确认只记录本地状态，不发布。
 
 建议先打开 **「蛙跳爬泰山」**：它是本次真实链路验收样例，可以查看素材、评分、角度、三平台短稿、来源引用和版本。稿件只证明流程通了，尚未做文风/转化率优化，用户人工确认保持待办。
 
@@ -96,7 +123,7 @@ GitHub 仓库只包含源码、启动器、说明和公开素材样例，不包�
 
 ## Agent 接入
 
-项目提供同一套 **16 个 MCP 工具** 和对应 CLI。SQLite 数据位置由服务器脚本所在目录决定；从不同客户端工作目录启动仍指向本项目 `data/`，除非明确设置 `HOTDESK_DATA`。
+项目提供同一套 **18 个 MCP 工具** 和对应 CLI。SQLite 数据位置由服务器脚本所在目录决定；从不同客户端工作目录启动仍指向本项目 `data/`，除非明确设置 `HOTDESK_DATA`。
 
 已在本项目生成：
 
@@ -114,7 +141,7 @@ GitHub 仓库只包含源码、启动器、说明和公开素材样例，不包�
 
 给 Agent 的示例：
 
-> 使用 hotdesk 工具处理我选中的话题。先查看素材，必要时补充公开来源，再领取下一工序并按约定提交结果，连续推进到成稿检查。把中间结果写回看板，不要发布。
+> 使用 hotdesk 工具处理我选中的话题。先查看素材，必要时补充公开来源，再领取下一工序并按约定提交结果，按默认规则连续推进到三平台稿件、已核对配图、最终审稿和完整交付包。把中间结果写回看板，不要发布。
 
 ### CLI
 
@@ -124,6 +151,8 @@ node src/cli.mjs list_topics
 node src/cli.mjs claim_task --file input.json
 node src/cli.mjs submit_result --file result.json
 node src/cli.mjs export_draft --file input.json --out review.md
+node src/cli.mjs list_images --file input.json
+node src/cli.mjs export_publish_pack --file input.json --out pack-result.json
 ```
 
 领取任务 `input.json`：
@@ -143,7 +172,7 @@ node src/cli.mjs export_draft --file input.json --out review.md
 - 每次最多推进 6 个 AI 工序；每步 120 秒超时、输出上限 6000 tokens、输入文本预算 180000 字符。
 - 初筛建议观察/跳过时，独立模型模式停止自动 Research；可由 Agent 手动决定后续。
 - 不自动无限重试，不自动购买额度，不把密钥存进 SQLite、草稿或 MCP 配置。
-- 该模式只分析已采集材料；尚未配置真实模型并做现场调用验证，不能据此声称完全无人值守。
+- 该模式只分析已采集材料，不自动搜索、核验图片或完成 ZIP 交付；尚未配置真实模型并做现场调用验证，不能据此声称完全无人值守。完整交付由外部 Agent 按项目规则完成。
 
 ## 数据、追溯与版本
 
@@ -151,7 +180,7 @@ node src/cli.mjs export_draft --file input.json --out review.md
 
 - `Fact Pack` 逐条区分 confirmed/disputed/unknown。非 unknown 主张必须有原文连续引文；评论和热榜不能直接作事实证据。
 - `Opinion Pack` 的观点必须引用真实 comment 素材。没有评论则明确 insufficient。
-- `Writer` 默认输出今日头条一版（可选多平台，每平台须重写标题与开头）；追求点击：开头抛冲突、口语、有立场、结尾引导站队。事实段/网友说法段必须引用，分析与过渡段可不引用但不得夹带新事实；unknown 主张不能进稿。
+- `Writer` 默认输出今日头条、企鹅号、百家号三版，采用不同标题、开头和读者问题；追求具体问题、真实反差和有材料的分歧。事实段/网友说法段必须引用，分析与过渡段可不引用但不得夹带新事实；unknown 主张不能进稿。
 - `Review` 只拦硬伤（事实错误、网友说法写成事实、编造、人身/地域/性别攻击、高危敏感）；warning 可通过，并用 info 给出更抓人的标题建议。
 - 验证器检查结构、ID、引文存在性和流程版本；**不会证明语义蕴含或绝对真实性**。审稿步骤和人工判断仍有必要。
 - 相同规范化 URL/近期相同标题保守归并，不同标题的同一事件由 Agent 判断后调用 merge_topics 或在 UI 合并。没有宣称全自动语义聚类已经解决。
@@ -165,10 +194,10 @@ npm test
 npm run check
 ```
 
-自动化测试覆盖完整状态流转、重复导入、失效与保留、来源/引文检查、租约互斥、暂停继续、只读 TrendRadar 导入、RSS/Atom、HTTP 会话限制、编辑失败不丢稿、标准 MCP 跨进程操作。所有测试数据写在本工作区 `work/hotdesk-tests/`，不会使用生产 `data/`。
+自动化测试还覆盖三平台交付、图片与原文快照绑定、失效重审、文件校验、纯文本/ZIP、HTTP 图片和下载入口，以及以下原有能力：完整状态流转、重复导入、失效与保留、来源/引文检查、租约互斥、暂停继续、只读 TrendRadar 导入、RSS/Atom、HTTP 会话限制、编辑失败不丢稿、标准 MCP 跨进程操作。所有测试数据写在本工作区 `work/hotdesk-tests/`，不会使用生产 `data/`。
 
 `examples/live-run-evidence.json` 是本次实际 MCP 工序记录；`examples/live-review-draft.md` 是导出的审核样稿；`examples/live-run-results.json` 是本次 Codex 依据真实资料写出的工序输入，**不是应用运行时内置的假 AI 生成器**。
 
-主要代码：`src/store.mjs`（SQLite/版本）、`src/adapters.mjs`（独立采集）、`src/pipeline.mjs`（资料包合同/校验）、`src/tools.mjs`（共用工具）、`src/mcp.mjs` / `src/cli.mjs`、`src/server.mjs` / `public/`、`src/worker.mjs`（可选模型运行器）。
+主要代码：`src/production-policy.mjs`（默认打法）、`src/publish-pack.mjs`（配图与交付 ZIP）、`src/store.mjs`（SQLite/版本）、`src/adapters.mjs`（独立采集）、`src/pipeline.mjs`（资料包合同/校验）、`src/tools.mjs`（共用工具）、`src/mcp.mjs` / `src/cli.mjs`、`src/server.mjs` / `public/`、`src/worker.mjs`（可选模型运行器）。
 
 当前没有：自动发布、定时全平台爬取、登录/验证码代办、图片视频生成、账号数据分析、PostgreSQL、复杂 CMS。这些不会以占位成功状态混入第一版。

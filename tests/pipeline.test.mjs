@@ -67,7 +67,7 @@ test('Web API 会话/跨站限制，失败编辑不丢旧版本，拒绝过期�
 });
 test('真实 MCP stdio 握手、工具发现、领取与提交共用 SQLite，无发布/人工确认工具',async()=>{
   const {s,t,source,comment,dir}=setup();const client=new Client({name:'hotdesk-test',version:'1'});const transport=new StdioClientTransport({command:process.execPath,args:[resolve('src/mcp.mjs')],env:{...process.env,HOTDESK_DATA:dir},stderr:'pipe'});
-  try{await client.connect(transport);const list=await client.listTools();assert.ok(list.tools.some(t=>t.name==='claim_task'));assert.ok(!list.tools.some(t=>/publish|approve/.test(t.name)));
+  try{await client.connect(transport);const list=await client.listTools();assert.ok(list.tools.some(t=>t.name==='claim_task'));assert.ok(list.tools.some(t=>t.name==='export_publish_pack'));assert.ok(!list.tools.some(t=>/^(publish|approve)(_|$)/.test(t.name)));
     const take=await client.callTool({name:'claim_task',arguments:{topic_id:t.id,actor:'mcp-test'}});const c=JSON.parse(take.content[0].text);assert.ok(c.claim_id);
     const result=await client.callTool({name:'submit_result',arguments:{topic_id:t.id,stage:'editor',actor:'mcp-test',basis:c.basis,claim_id:c.claim_id,content:content('editor',source,comment)}});assert.ok(!result.isError);assert.equal(s.latest(t.id,'editor').actor,'mcp-test');
   }finally{await client.close();s.close();}

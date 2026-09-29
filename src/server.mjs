@@ -2,10 +2,12 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
+import {join} from 'node:path';
 import { Store, now } from './store.mjs';
 import { callTool } from './tools.mjs';
 import { exportMarkdown,validate } from './pipeline.mjs';
 import { modelConfigured,runPipeline } from './worker.mjs';
+import {imageFile} from './publish-pack.mjs';
 
 export function createApp(store=new Store()){
   const token=randomBytes(32).toString('hex');
@@ -22,6 +24,20 @@ export function createApp(store=new Store()){
         if(url.pathname==='/api/state')return send(200,{topics:store.list(),jobs:store.jobs(),model_configured:modelConfigured(),config:{feeds:store.setting('feeds',[]),trendradar_path:store.setting('trendradar_path',''),newsnow_base:store.setting('newsnow_base','http://127.0.0.1:4444/api/s')},claims:store.db.prepare("SELECT topic_id,stage,actor,expires_at FROM claims WHERE status='active' AND expires_at>?").all(now())});
         if(url.pathname.startsWith('/api/topic/'))return send(200,store.detail(url.pathname.split('/').at(-1)));
         if(url.pathname.startsWith('/api/raw/'))return send(200,store.readRaw(url.pathname.split('/').at(-1)),'text/plain; charset=utf-8');
+        if(url.pathname.startsWith('/api/packs/')){
+          const filename=url.pathname.split('/').at(-1);
+          if(!/^t_[a-f0-9-]+_[a-f0-9]{16}\.zip$/.test(filename))throw new Error('无效交付包地址');
+          const bytes=readFileSync(join(store.dir,'publish-packs',filename));
+          res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':`attachment; filename="${filename}"`});
+          return res.end(bytes);
+        }
+        if(url.pathname.startsWith('/api/images/')){
+          const [, , ,topicId,imageId]=url.pathname.split('/');
+          const image=store.setting(`images:${topicId}`,[]).find(i=>i.id===imageId);
+          if(!image)throw new Error('图片不存在');
+          const extension=image.filename.split('.').at(-1),bytes=readFileSync(imageFile(store,image));
+          res.writeHead(200,{'Content-Type':`image/${extension==='jpg'?'jpeg':extension}`});return res.end(bytes);
+        }
         if(url.pathname.startsWith('/api/export/')){res.setHeader('Content-Disposition','attachment; filename="hotdesk-review.md"');return send(200,exportMarkdown(store,url.pathname.split('/').at(-1)),'text/markdown; charset=utf-8');}
         const assets={'/':'index.html','/app.js':'app.js','/style.css':'style.css'};if(assets[url.pathname])return send(200,readFileSync(fileURLToPath(new URL(`../public/${assets[url.pathname]}`,import.meta.url)),'utf8'),url.pathname.endsWith('.js')?'text/javascript; charset=utf-8':url.pathname.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');
         return send(404,{error:'不存在'});

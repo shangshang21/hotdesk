@@ -107,7 +107,7 @@ export class Store {
     const observations = this.db.prepare('SELECT * FROM observations WHERE topic_id=? ORDER BY observed_at').all(id);
     const by = new Map(); for (const o of observations) { const k = `${o.platform}:${o.url}`; if (!by.has(k)) by.set(k, []); by.get(k).push(o); }
     const movements = [...by].flatMap(([k,v]) => v.length > 1 && v[0].rank > 0 && v.at(-1).rank > 0 && v[0].observed_at !== v.at(-1).observed_at ? [{ platform: v[0].platform, from:v[0].rank, to:v.at(-1).rank, delta:v[0].rank-v.at(-1).rank }] : []);
-    return { ...t, sources, artifacts, observations, movements, platform_count: new Set(sources.filter(s=>s.kind==='hotlist'||s.kind==='post'||s.kind==='comment').map(s=>s.platform)).size, next: this.next(id), events: this.db.prepare('SELECT * FROM events WHERE topic_id=? ORDER BY id DESC LIMIT 100').all(id).map(e=>({...e,payload:JSON.parse(e.payload)})) };
+    return { ...t, sources, artifacts, observations, movements, images:this.setting(`images:${id}`,[]), platform_count: new Set(sources.filter(s=>s.kind==='hotlist'||s.kind==='post'||s.kind==='comment').map(s=>s.platform)).size, next: this.next(id), events: this.db.prepare('SELECT * FROM events WHERE topic_id=? ORDER BY id DESC LIMIT 100').all(id).map(e=>({...e,payload:JSON.parse(e.payload)})) };
   }
   list() {
     return this.db.prepare('SELECT * FROM topics WHERE merged_into IS NULL ORDER BY updated_at DESC LIMIT 300').all().map(t => {

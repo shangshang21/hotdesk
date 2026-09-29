@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Adapters } from './adapters.mjs';
 import { context, submit, exportMarkdown } from './pipeline.mjs';
+import {collectImage,buildPublishPack,imagesFor} from './publish-pack.mjs';
 const stages=z.enum(['editor','research','opinion','angles','write','review']);
 const id=z.string().min(1);
 const source=z.object({platform:z.string().min(1),kind:z.enum(['article','post','comment','hotlist']),title:z.string().default(''),body:z.string().max(100000),url:z.string().default(''),external_id:z.string().optional(),published_at:z.string().optional(),metadata:z.record(z.unknown()).optional()});
@@ -20,6 +21,9 @@ export const toolDefinitions={
   select_angle:{description:'选定已有切入角度并将写作/审稿标为待重做。',schema:{topic_id:id,angle_id:id}},
   merge_topics:{description:'确认两个条目是同一事件后合并到目标；保留原话题档案，目标重新分析。不能仅凭相似关键词合并。',schema:{from:id,to:id}},
   export_draft:{description:'导出带引用的 Markdown 审核稿。未人工确认会带待审核标记；没有发布能力。',schema:{topic_id:id}},
+  collect_image:{description:'核对场景后下载真实配图；须关联本话题原文来源，保留图注/署名/使用说明。图片更新会使审稿失效。',schema:{topic_id:id,source_id:id,url:z.string().url(),caption:z.string().min(1).max(500),credit:z.string().min(1).max(200),usage_note:z.string().min(1).max(1000),verified_scene:z.literal(true),placement:z.enum(['cover','detail','result']),platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3)}},
+  list_images:{description:'查看本话题真实图片文件及来源记录。',schema:{topic_id:id}},
+  export_publish_pack:{description:'导出三平台标题/纯正文/配图/插图说明的文件夹和ZIP；缺图、缺稿或审稿未过会标待补全。ready_for_handoff不等于人工确认或已发布。',schema:{topic_id:id,platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3).refine(a=>new Set(a).size===a.length,'平台不能重复').optional()}},
 };
 export async function tracked(store,kind,topic,input,fn){
   const job=store.job(kind,topic,input);try{const r=await fn();store.finishJob(job,r);return {job_id:job,...r};}catch(e){store.finishJob(job,null,e.message);throw e;}
@@ -42,5 +46,8 @@ export async function callTool(store,name,args={}){
     case 'select_angle':store.selectAngle(a.topic_id,a.angle_id);return {selected:a.angle_id};
     case 'merge_topics':return store.merge(a.from,a.to);
     case 'export_draft':return {markdown:exportMarkdown(store,a.topic_id)};
+    case 'collect_image':return tracked(store,name,a.topic_id,a,()=>collectImage(store,a.topic_id,a));
+    case 'list_images':return {images:imagesFor(store,a.topic_id)};
+    case 'export_publish_pack':return buildPublishPack(store,a.topic_id,a.platforms);
   }
 }
