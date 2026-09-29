@@ -69,9 +69,9 @@ export function createApp(store=new Store()){
       if(url.pathname.startsWith('/api/tool/')){
         const name=url.pathname.split('/').at(-1);
         if(url.searchParams.get('background')==='1'&&['discover','collect_url'].includes(name)){
-          callTool(store,name,a).catch(e=>store.event(a.topic_id||null,'adapter_error',{tool:name,error:e.message}));return send(202,{queued:true});
+          callTool(store,name,a,{origin:'web'}).catch(e=>store.event(a.topic_id||null,'adapter_error',{tool:name,error:e.message}));return send(202,{queued:true});
         }
-        return send(200,await callTool(store,name,a));
+        return send(200,await callTool(store,name,a,{origin:'web'}));
       }
       return send(404,{error:'不存在'});
     }catch(e){return send(400,{error:e.message});}

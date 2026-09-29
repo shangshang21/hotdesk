@@ -29,7 +29,7 @@ test('fake-IP 混合回环、私网或链路本地地址时在请求前拒绝',a
 });
 
 test('纯 fake-IP 及 fake-IP 混合公网地址继续可采集',async()=>{
-  for(const [host,addresses] of [['fake.example.org',['198.18.0.7','198.19.0.8']],['public.example.org',['198.18.0.7','93.184.216.34']]]){
+  for(const [host,addresses] of [['fake.example.org',['198.18.0.7','198.19.0.8']],['public.example.org',['198.18.0.7','93.184.216.34']],['clash6.example.org',['198.18.0.154','fdfe:dcba:9876::7f']]]){
     answers.set(host,addresses);
     await withFetch(async calls=>{
       const result=await fetchRaw(store,`https://${host}/`);

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { STAGES, normalize, now } from './store.mjs';
+import { STAGES, normalize, now, TRUSTED_ORIGINS, verificationOf } from './store.mjs';
 import {productionPolicy,strategyInstructions} from './production-policy.mjs';
 
 const text=z.string().min(1).max(30000), refs=z.array(z.string()).max(100);
@@ -68,7 +68,7 @@ export function validate(store,id,stage,raw){
   if(stage==='research'){
     unique(c.facts);
     for(const f of c.facts){if(f.status!=='unknown'&&!f.evidence.length)throw new Error(`${f.id} 缺少证据`);
-      for(const e of f.evidence){const s=sourceMap.get(e.source_id);if(!s)throw new Error('事实证据来源不存在');if(s.kind==='comment'||s.kind==='hotlist')throw new Error('评论或热榜不能直接作为事实证据，请取得原文');if(!normalize(`${s.title}\n${s.body}`).includes(normalize(e.quote)))throw new Error(`${f.id} 引文未在原始素材中找到`);}
+      for(const e of f.evidence){const s=sourceMap.get(e.source_id);if(!s)throw new Error('事实证据来源不存在');if(s.kind==='comment'||s.kind==='hotlist')throw new Error('评论或热榜不能直接作为事实证据，请取得原文');if(!TRUSTED_ORIGINS.includes(verificationOf(s)))throw new Error(`${f.id} 的来源 ${s.id} 未通过核验（${s.metadata?.verification?.reason||'Agent 导入未核对'}），不能作事实证据；请用 collect_url 直接采集原文，或由人工在看板导入`);if(!normalize(`${s.title}\n${s.body}`).includes(normalize(e.quote)))throw new Error(`${f.id} 引文未在原始素材中找到`);}
     }
     const ownFacts=new Map(c.facts.map(f=>[f.id,f]));
     for(const item of [...(c.causal_chains||[]),...(c.scenarios||[])]){
@@ -80,8 +80,8 @@ export function validate(store,id,stage,raw){
   if(stage==='opinion'){
     const pts=['focus','support','oppose','questions','platform_differences'].flatMap(k=>c[k]);unique(pts);
     if(c.status==='insufficient'&&(pts.length||c.keywords.length))throw new Error('样本不足时须清空观点和关键词');
-    if(c.status==='available'&&!sources.some(s=>s.kind==='comment'))throw new Error('没有评论样本，不能声称分析可用');
-    for(const p of pts){if(!p.source_ids.length)throw new Error('每个讨论结论必须引用评论');checkIds(p.source_ids,sourceMap,'评论');if(p.source_ids.some(ref=>sourceMap.get(ref).kind!=='comment'))throw new Error('观点只能引用 comment 素材');}
+    if(c.status==='available'&&!sources.some(s=>s.kind==='comment'&&TRUSTED_ORIGINS.includes(verificationOf(s))))throw new Error(sources.some(s=>s.kind==='comment')?'评论样本都未通过核验，不能声称分析可用；请用 collect_url 采集或人工导入':'没有评论样本，不能声称分析可用');
+    for(const p of pts){if(!p.source_ids.length)throw new Error('每个讨论结论必须引用评论');checkIds(p.source_ids,sourceMap,'评论');if(p.source_ids.some(ref=>sourceMap.get(ref).kind!=='comment'))throw new Error('观点只能引用 comment 素材');const bad=p.source_ids.find(ref=>!TRUSTED_ORIGINS.includes(verificationOf(sourceMap.get(ref))));if(bad)throw new Error(`评论 ${bad} 未通过核验，不能作观点来源；请用 collect_url 采集，或由人工在看板粘贴导入`);}
   }
   if(stage==='angles'){
     unique(c.angles);for(const a of c.angles){checkIds(a.fact_ids,facts,'事实');checkIds(a.opinion_ids,opinionMap,'观点');if(!a.fact_ids.length&&!a.opinion_ids.length)throw new Error('角度必须有材料依据');}

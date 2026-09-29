@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Adapters } from './adapters.mjs';
 import { context, submit, exportMarkdown } from './pipeline.mjs';
 import {collectImage,buildPublishPack,imagesFor} from './publish-pack.mjs';
+import {verifySources} from './verify.mjs';
 const stages=z.enum(['editor','research','opinion','angles','write','review']);
 const id=z.string().min(1);
 const source=z.object({platform:z.string().min(1),kind:z.enum(['article','post','comment','hotlist']),title:z.string().default(''),body:z.string().max(100000),url:z.string().default(''),external_id:z.string().optional(),published_at:z.string().optional(),metadata:z.record(z.unknown()).optional()});
@@ -12,7 +13,7 @@ export const toolDefinitions={
   discover:{description:'从 bilibili/tieba/reddit/trendradar/rss:配置ID/newsnow:榜单ID 导入最多 50 个热点。上游失败会保留错误记录。',schema:{source:z.string(),limit:z.number().int().min(1).max(50).default(12)}},
   search_posts:{description:'按词搜索 B站、贴吧、Reddit。小红书返回浏览器搜索入口与导入指引，不伪装匿名搜索能力。',schema:{platform:z.enum(['bilibili','tieba','reddit','xiaohongshu']),query:z.string().min(1).max(200),limit:z.number().int().min(1).max(20).default(8)}},
   collect_url:{description:'采集一条公开视频/帖子/文章链接到话题。评论采样有边界；登录/受阻会返回 partial 或失败。',schema:{topic_id:id,url:z.string().url()}},
-  import_sources:{description:'将实际读到的网页正文/评论导入。必须保留 URL 与采样说明，不得合成网友评论。添加资料会使旧分析失效。',schema:{topic_id:id,sources:z.array(source).min(1).max(50)}},
+  import_sources:{description:'将实际读到的网页正文/评论导入。服务器会打开原链接核对内容：页面里找得到才标 verified；打不开或对不上标 unverified，unverified 素材不能作事实证据或观点来源。不得合成网友评论。添加资料会使旧分析失效。',schema:{topic_id:id,sources:z.array(source).min(1).max(50)}},
   get_task:{description:'读取下一步（或指定工序）的资料、提示和 JSON 输出范例；不领取写入权。',schema:{topic_id:id,stage:stages.optional()}},
   claim_task:{description:'为当前下一工序领取 20 分钟租约，返回 claim_id、basis 和完整资料。一个话题同时只允许一个 Agent 写入。',schema:{topic_id:id,actor:z.string().min(1).max(150)}},
   submit_result:{description:'提交已领取工序的结构化结果。校验来源、引用、上游版本、租约；自动使下游旧结果失效。actor 可填 Agent/model 标识。',schema:{topic_id:id,stage:stages,actor:z.string().min(1),basis:id,claim_id:id,content:z.record(z.unknown())}},
@@ -28,7 +29,7 @@ export const toolDefinitions={
 export async function tracked(store,kind,topic,input,fn){
   const job=store.job(kind,topic,input);try{const r=await fn();store.finishJob(job,r);return {job_id:job,...r};}catch(e){store.finishJob(job,null,e.message);throw e;}
 }
-export async function callTool(store,name,args={}){
+export async function callTool(store,name,args={},ctx={}){
   const def=toolDefinitions[name];if(!def)throw new Error('未知工具');const a=z.object(def.schema).strict().parse(args);const adapters=new Adapters(store);
   switch(name){
     case 'list_topics':return {topics:store.list()};
@@ -37,7 +38,9 @@ export async function callTool(store,name,args={}){
     case 'discover':return tracked(store,name,null,a,()=>adapters.discover(a.source,a.limit));
     case 'search_posts':return tracked(store,name,null,a,()=>adapters.search(a.platform,a.query,a.limit));
     case 'collect_url':return tracked(store,name,a.topic_id,a,()=>adapters.collect(a.topic_id,a.url));
-    case 'import_sources':return {sources:a.sources.map(s=>store.addSource(a.topic_id,{...s,metadata:{...s.metadata,imported:true}}))};
+    case 'import_sources':{store.topic(a.topic_id);const checked=await verifySources(store,a.sources,ctx.origin);
+      const saved=checked.map(({verification,...s})=>store.addSource(a.topic_id,{...s,metadata:{...s.metadata,imported:true,verification}}));
+      return {sources:saved.map((s,i)=>({id:s.id,duplicate:!!s.duplicate,verification:checked[i].verification})),unverified:checked.filter(s=>s.verification.status==='unverified').length};}
     case 'get_task':return context(store,a.topic_id,a.stage);
     case 'claim_task':{const stage=store.next(a.topic_id);if(['collect','done','paused'].includes(stage))throw new Error(`当前状态 ${stage} 无可领取 AI 工序`);const claim=store.claim(a.topic_id,stage,a.actor);return {claim_id:claim.id,basis:claim.basis,expires_at:claim.expires_at,task:context(store,a.topic_id,stage)};}
     case 'submit_result':return submit(store,a);

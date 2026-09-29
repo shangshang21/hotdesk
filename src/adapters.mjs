@@ -11,15 +11,16 @@ import { canonical, now, normalize } from './store.mjs';
 const waits = new Map();
 const epoch = n => Number.isFinite(Number(n)) && Number(n)>0 ? new Date(Number(n)*1000).toISOString() : null;
 const hostIs = (host, domain) => host === domain || host.endsWith(`.${domain}`);
+const fakeIP = ip => /^198\.1[89]\./.test(ip) || /^fdfe:dcba:9876:/i.test(ip);
 const blockedIP = ip => /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip) || ip==='::1' || /^(fc|fd|fe80|::ffff:)/i.test(ip);
 async function fetchBytes(url,{allowLocal=false,headers={},maxBytes=3*1024*1024}={}) {
   let current=canonical(url);
   for(let redirects=0;redirects<4;redirects++) {
     const u=new URL(current),host=u.hostname.replace(/^\[|\]$/g,'');
     const addresses=isIP(host)?[{address:host}]:await lookup(host,{all:true});
-    // Proxy TUN fake-IP addresses (198.18.0.0/15) are allowed by blockedIP,
+    // Proxy TUN fake-IP addresses (198.18.0.0/15, Clash's default fdfe:dcba:9876::/48) are exempt,
     // but must never exempt other addresses returned by the same DNS lookup.
-    if(!allowLocal && addresses.some(a=>blockedIP(a.address)))throw new Error('公共采集不允许访问内网地址；本地 RSSHub 请在配置中显式启用 allowLocal');
+    if(!allowLocal && addresses.some(a=>blockedIP(a.address)&&!fakeIP(a.address)))throw new Error('公共采集不允许访问内网地址；本地 RSSHub 请在配置中显式启用 allowLocal');
     const delay=Math.max(0,(waits.get(u.host)||0)-Date.now()); if(delay)await new Promise(r=>setTimeout(r,delay));waits.set(u.host,Date.now()+1200);
     const r=await fetch(current,{redirect:'manual',signal:AbortSignal.timeout(20000),headers:{'User-Agent':'HotdeskLocal/0.1 (personal research; bounded sampling)','Accept':'application/json,text/html,application/rss+xml,application/atom+xml;q=0.9',...headers}});
     if(r.status>=300&&r.status<400&&r.headers.get('location')){const dest=new URL(r.headers.get('location'),current);if(dest.origin!==u.origin&&headers.Authorization)throw new Error('拒绝向其他站点转发认证信息');current=dest.href;continue;}
@@ -193,7 +194,7 @@ export class Adapters {
       if(hostIs(u.hostname,'xiaohongshu.com')||u.hostname==='xhslink.com')warnings.push('小红书仅尝试公开分享页正文；评论需通过浏览器可见内容导入');
     }
     if(!rows.length)throw new Error('没有获得可用正文，可能需要登录或页面不受支持；请导入正文/评论，不会把页面外壳算作采集成功');
-    const saved=rows.filter(r=>r.body||r.title).map(r=>this.store.addSource(id,r));
+    const saved=rows.filter(r=>r.body||r.title).map(r=>this.store.addSource(id,{...r,metadata:{...r.metadata,verification:{status:'collected',at:now()}}}));
     return {status:warnings.length?'partial':'ok',count:saved.filter(s=>!s.duplicate).length,total:saved.length,comments:rows.filter(r=>r.kind==='comment').length,source_ids:saved.map(s=>s.id),image_candidates:raw?.body?.includes('<')?imageCandidates(raw.body,raw.url):[],warnings};
   }
 }

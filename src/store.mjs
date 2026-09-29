@@ -18,6 +18,10 @@ export function canonical(url) {
   return u.href;
 }
 export const normalize = (s) => String(s || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
+// Source provenance: collected = fetched by Hotdesk itself; human = pasted by the user in the web UI;
+// verified = agent import whose text was found on the live page; anything else is unverified.
+export const TRUSTED_ORIGINS = ['collected', 'human', 'verified'];
+export const verificationOf = (s) => s.metadata?.verification?.status || (s.metadata?.imported ? 'unverified' : 'collected');
 
 export class Store {
   constructor(dir = dataDir) {
