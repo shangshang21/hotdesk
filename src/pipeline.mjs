@@ -16,7 +16,7 @@ const causalChain=z.object({from:text,to:text,mechanism:text,fact_ids:refs,uncer
 const scenario=z.object({premise:text,result:text,watch_for:z.array(text).min(1),invalidators:z.array(text).min(1),fact_ids:refs});
 export const schemas={
   editor:z.object({grade:z.enum(['S','A','B']),reason:text,recommendation:z.enum(['research','observe','skip']),metrics:z.object({freshness:metric,growth:metric,controversy:metric,mass_interest:metric,finance_relevance:metric,tech_relevance:metric,saturation:metric}),missing:z.array(text),reader_entry:readerEntry.optional()}),
-  research:z.object({facts:z.array(z.object({id:z.string().min(1),claim:text,status:z.enum(['confirmed','disputed','unknown']),evidence:z.array(z.object({source_id:z.string(),quote:text})).max(10),reason:text})).max(50),gaps:z.array(text),as_of:text,search_log:z.array(z.object({query:text,lang:z.enum(['zh','en','other'])})).max(40),essence:z.array(z.object({id:z.string().min(1),insight:text,plain:text,term:z.string().max(40).optional()})).max(3),causal_chains:z.array(causalChain).optional(),scenarios:z.array(scenario).optional()}),
+  research:z.object({facts:z.array(z.object({id:z.string().min(1),claim:text,status:z.enum(['confirmed','disputed','unknown']),evidence:z.array(z.object({source_id:z.string(),quote:text})).max(10),reason:text})).max(50),gaps:z.array(text),as_of:text,search_log:z.array(z.object({query:text,lang:z.enum(['zh','en','other'])})).max(40),essence:z.array(z.object({id:z.string().min(1),insight:text,plain:text,term:z.string().max(40).optional()})).max(3),pr_source:z.object({company:z.string().min(1).max(40),note:text}).nullable().optional(),causal_chains:z.array(causalChain).optional(),scenarios:z.array(scenario).optional()}),
   opinion:z.object({status:z.enum(['available','insufficient']),sample_note:text,focus:z.array(point),support:z.array(point),oppose:z.array(point),questions:z.array(point),keywords:z.array(z.string()).max(30),platform_differences:z.array(point),limitations:z.array(text)}),
   benchmark:z.object({status:z.enum(['available','none_found']),searched:z.array(text).max(20),items:z.array(z.object({source_id:z.string(),tier:z.enum(['authority','viral']),angle:text,structure:text,title_pattern:text,hook:text,strengths:z.array(text),missed:z.array(text)})).max(10),consensus:z.array(text),gaps:z.array(z.object({id:z.string().min(1),text,why:text,fact_ids:refs})).max(10)}),
   angles:z.object({angles:z.array(z.object({id:z.string(),name:text,gap_ids:refs.optional(),differs_from:text.optional(),hook:text,audience_value:text,fact_ids:refs,opinion_ids:refs,titles:z.array(text).min(1).max(20),gaps:z.array(text),reader_promise:text.optional(),core_contrast:text.optional(),template:z.enum(['conflict','story','explanation']).optional(),fulfillment:text.optional()})).min(1).max(5),recommendation:text}),
@@ -36,7 +36,7 @@ export const examples={
 };
 const instructions={
   editor:'判断这个热点值不值得写、能不能吸引点击。重点看：时效（刚上榜、正在发酵的优先，已经凉了的降级）、冲突和话题性（有没有能吵起来的点）、大众关联（普通人会不会关心）、有没有可挖的料。controversy 和 mass_interest 是核心指标。缺数据的指标用 null，不要把排名硬换算成流量。',
-  research:'查清来龙去脉，挖能写的料：起因、经过、反转、细节、数字、各方说法。查到满足下面的最低清单才算完，不能“差不多就行”：① search_log 至少 6 个关键词，至少 1 个英文（找国外学者、媒体怎么讨论同类现象）；② 事实证据来自至少 2 个不同网站；③ essence 至少 1 条：想明白“这事背后到底是怎么回事”。可以参考国内外专家、深度报道对同类现象的分析来想，但 plain 要写成接地气的大白话，像自己琢磨出来的，不提“某经济学家说”，不必用专有名词，不搬国外案例。热榜标题没有正文时，先 release_task，用 collect_url 采集原文（补素材只让本步及之后重做，不会打回初筛），再重新领取。事实要准：evidence.quote 必须是素材里真实存在的连续原文；评论和热榜不能当事实证据；有争议标 disputed，查不到标 unknown。',
+  research:'查清来龙去脉，挖能写的料：起因、经过、反转、细节、数字、各方说法。查到满足下面的最低清单才算完，不能“差不多就行”：① search_log 至少 6 个关键词，至少 1 个英文（找国外学者、媒体怎么讨论同类现象）；② 事实证据来自至少 2 个不同网站；④ 如果素材主要来自一家公司自己发布的数据（飞猪、携程、美团、某品牌……），这就是企业通稿 / 软文素材：pr_source 写明公司名，并至少再找 1 条不出自它的独立事实（官方统计、其他媒体、行业报告），服务器会自动识别。③ essence 至少 1 条：想明白“这事背后到底是怎么回事”。可以参考国内外专家、深度报道对同类现象的分析来想，但 plain 要写成接地气的大白话，像自己琢磨出来的，不提“某经济学家说”，不必用专有名词，不搬国外案例。热榜标题没有正文时，先 release_task，用 collect_url 采集原文（补素材只让本步及之后重做，不会打回初筛），再重新领取。事实要准：evidence.quote 必须是素材里真实存在的连续原文；评论和热榜不能当事实证据；有争议标 disputed，查不到标 unknown。',
   opinion:'评论是加分项，不是必需品。没有评论就直接返回 insufficient 和空数组，别卡流程。有评论就挖：争议点、对立阵营、金句、高频槽点、最能引发站队的说法，放进 focus/support/oppose/questions，金句原话放进 keywords。每个观点引用具体评论 ID；评论里的指控只是网友说法，不能当成事实。',
   benchmark:'对标拆解：先用外部搜索找同一话题已发布的文章，权威媒体/机构（新华社、澎湃、界面、财新、三联等）和爆款自媒体各找 2–3 篇，用 collect_url 加 as_benchmark=authority/viral 采集入库（需先 release_task，入库后重新领取）。逐篇拆：切入角度、段落结构、标题套路、开头钩子、值得学的写法、它漏掉的信息或视角。再总结 consensus（大家都写了的，我们不重复）和 gaps（没人写、读者又在意的切入点，尽量挂上 Fact ID）。确实搜不到时 status=none_found，searched 至少列 2 个试过的关键词。学结构和套路，不抄句子：成稿与对标文章有连续 20 个字相同会被拒收。',
   angles:'给 1–5 个切入角度，目标是让人想点进来。优先：冲突、反转、反常识、和普通人利益相关、能引发站队的。每个角度给 5–10 个标题，至少覆盖这几种写法：反问式、站队式（“这事你站哪边”）、反转式（“没想到……”）、网友扒出式（“网友：……”，前提是评论里真有人这么说）、数字细节式。标题可以夸张语气、可以有锋芒，但不能编造没发生的事实。',
@@ -87,6 +87,11 @@ export function validate(store,id,stage,raw){
     const log=c.search_log;if(log.length<RESEARCH_MIN.queries||log.filter(q=>q.lang==='en').length<RESEARCH_MIN.english_queries)throw new Error(`查资料不够：search_log 至少 ${RESEARCH_MIN.queries} 个关键词，其中至少 ${RESEARCH_MIN.english_queries} 个英文（现在 ${log.length} 个，英文 ${log.filter(q=>q.lang==='en').length} 个）`);
     const sites=new Set(c.facts.filter(f=>f.status!=='unknown').flatMap(f=>f.evidence).map(e=>{try{return new URL(sourceMap.get(e.source_id).url).hostname.replace(/^(www|m)\./,'');}catch{return null;}}).filter(Boolean));
     if(sites.size<RESEARCH_MIN.source_sites)throw new Error(`事实证据只来自 ${sites.size} 个网站，至少要 ${RESEARCH_MIN.source_sites} 个不同网站的原文互相印证`);
+    const pr=prDominant(c.facts,sourceMap);
+    if(pr){
+      if(!c.pr_source||!(c.pr_source.company.includes(pr.company)||pr.company.includes(c.pr_source.company)))throw new Error(`素材主要来自「${pr.company}」自家发布的数据（${pr.count}/${pr.total} 条事实），这是企业通稿/软文素材：请在 pr_source 写明公司，写稿时写成“据${pr.company}数据”，不能写成全国趋势`);
+      if(!pr.independent.length)throw new Error(`所有事实都出自「${pr.company}」自家数据：至少再找 1 条不出自它的独立事实（官方统计、其他媒体、行业报告）`);
+    }
     if(c.essence.length<RESEARCH_MIN.essence)throw new Error('至少写 1 条 essence：这事背后到底是怎么回事，并用大白话说出来');
     unique(c.essence);
     const ownFacts=new Map(c.facts.map(f=>[f.id,f]));
@@ -154,6 +159,26 @@ export function validate(store,id,stage,raw){
   return c;
 }
 // Longest-common-run check on letters/digits: any COPY_RUN-char window shared with a benchmark text is a copy.
+// Company self-published data ("飞猪数据显示", "据携程统计") marks press-release material.
+const NOT_PR=/(?:局|部|委|厅|院|署|办|政府|中心|大学|研究所|官方|统计|公开|最新|相关|监测|调查)$/;
+export function dataOwners(text){
+  const out=new Set();
+  const t=String(text||'');
+  for(const m of [...t.matchAll(/([一-龥A-Za-z]{2,8}?)(?:平台)?(?:大数据|数据|统计)(?:显示|表明|称)/g),...t.matchAll(/据([一-龥A-Za-z]{2,8}?)(?:平台)?(?:大数据|数据|统计)/g)]){
+    if(/^[局部委厅院署]/.test(t.slice(m.index+m[0].length)))continue;
+    let name=m[1].replace(/^(?:另据|根据|此外|同时|其中|在线旅游平台|旅游平台|平台|而|据)+/,'');
+    if(name.length>=2&&!NOT_PR.test(name))out.add(name);
+  }
+  return [...out];
+}
+// The single company behind at least half of the fact sources, if any.
+export function prDominant(facts,sourceMap){
+  const live=facts.filter(f=>f.status!=='unknown'&&f.evidence.length);if(live.length<2)return null;
+  const owners=f=>new Set(f.evidence.flatMap(e=>{const src=sourceMap.get(e.source_id);return src?dataOwners(`${src.title}\n${src.body}`):[];}));
+  const count=new Map();for(const f of live)for(const o of owners(f))count.set(o,(count.get(o)||0)+1);
+  const [name,n]=[...count].sort((a,b)=>b[1]-a[1])[0]||[];
+  return name&&n*2>=live.length?{company:name,count:n,total:live.length,independent:live.filter(f=>!owners(f).has(name)).map(f=>f.id)}:null;
+}
 export const paragraphs=body=>String(body||'').split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);
 export function numberSentences(title,body){
   return [title,...paragraphs(body)].flatMap(p=>normalize(p).split(/(?<=[。！？!?；;])/)).map(x=>x.trim()).filter(x=>/\d/.test(x));

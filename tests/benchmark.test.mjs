@@ -75,3 +75,15 @@ test('查资料硬清单：关键词不足、英文为零、只有一个网站�
   assert.ok(s.latest(t.id, 'editor')); assert.equal(s.next(t.id), 'research');
   s.close();
 });
+test('企业通稿：素材主要来自一家公司自家数据时须写明 pr_source，且至少 1 条独立事实', async () => {
+  const s = new Store(mkdtempSync(join(root, 'pr-'))), t = s.createTopic('[TEST] 通稿');
+  const a = s.addSource(t.id, { kind: 'article', platform: 'web', title: 'A', url: 'https://example.org/a', body: '飞猪数据显示，国庆门票张数同比增长近30%。徒步预订增长近80%。' });
+  const b = s.addSource(t.id, { kind: 'article', platform: 'web', title: 'B', url: 'https://news.example.net/b', body: '据飞猪统计，武威等小城线路预订翻倍。' });
+  const c2 = s.addSource(t.id, { kind: 'article', platform: 'web', title: 'C', url: 'https://gov.example.com/c', body: '文化和旅游部发布，国庆假期国内出游人次稳步增长。' });
+  const fact = (id, src, quote) => ({ id, claim: quote, status: 'confirmed', evidence: [{ source_id: src.id, quote }], reason: 'x' });
+  const base = () => ({ facts: [fact('F1', a, '国庆门票张数同比增长近30%'), fact('F2', b, '武威等小城线路预订翻倍')], gaps: [], as_of: 'now', search_log: searchLog, essence: [{ id: 'E1', insight: 'x', plain: '说白了，大家想找点真东西。' }] });
+  assert.throws(() => validate(s, t.id, 'research', base()), /「飞猪」自家发布的数据/);
+  let c = base(); c.pr_source = { company: '飞猪', note: '旅游平台自家数据' }; assert.throws(() => validate(s, t.id, 'research', c), /独立事实/);
+  c.facts.push(fact('F3', c2, '国庆假期国内出游人次稳步增长')); assert.doesNotThrow(() => validate(s, t.id, 'research', c));
+  s.close();
+});
