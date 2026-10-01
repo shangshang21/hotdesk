@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { Store } from '../src/store.mjs';
 import { callTool } from '../src/tools.mjs';
-import { examples, validate, styleAudit } from '../src/pipeline.mjs';
+import { examples, validate, styleAudit, quoteRatio } from '../src/pipeline.mjs';
 import { imageBriefText } from '../src/publish-pack.mjs';
 
 const root = resolve('../../work/hotdesk-tests'); mkdirSync(root, { recursive: true });
@@ -12,7 +12,7 @@ const root = resolve('../../work/hotdesk-tests'); mkdirSync(root, { recursive: t
 function setup(title = '[TEST] “原生旅游”火了') {
   const s = new Store(mkdtempSync(join(root, 'style-'))), t = s.createTopic(title);
   const a = s.addSource(t.id, { kind: 'article', platform: 'web', title: '平台数据报道', url: 'https://example.org/fliggy-data', body: '平台国庆数据显示，徒步和登山体验的预订用户规模增加近80%，贵州铜仁云舍村等村寨的搜索热度明显上升。' });
-  const b = s.addSource(t.id, { kind: 'article', platform: 'web', title: '基诺山报道', url: 'https://news.example.net/jino', body: '在基诺山，村民向导带领游客走进雨林，游客跟随向导辨认路线、参与溪流边的活动。' });
+  const b = s.addSource(t.id, { kind: 'article', platform: 'web', title: '基诺山报道', url: 'https://news.example.net/jino', body: '在基诺山，村民向导带领游客走进雨林，游客跟随向导辨认路线、参与溪流边的活动。向导岩先生说：“以前游客拍完照就走，现在跟着我们认路、蹚水，晚上一起吃我们做的饭，临走还要带一点我们自己晒的茶。”' });
   return { s, t, a, b };
 }
 const stageContents = (a, b) => ({
@@ -21,6 +21,7 @@ const stageContents = (a, b) => ({
     facts: [
       { id: 'F1', claim: '平台国庆数据显示徒步登山体验预订用户规模增加近80%。', status: 'confirmed', evidence: [{ source_id: a.id, quote: '徒步和登山体验的预订用户规模增加近80%' }], reason: '原文' },
       { id: 'F2', claim: '基诺山有村民向导带领游客走进雨林。', status: 'confirmed', evidence: [{ source_id: b.id, quote: '村民向导带领游客走进雨林' }], reason: '原文' },
+      { id: 'F3', claim: '村民向导岩先生表示，过去游客拍照就走，如今会跟着向导认路蹚水、吃村民做的饭。', status: 'confirmed', evidence: [{ source_id: b.id, quote: '以前游客拍完照就走，现在跟着我们认路、蹚水，晚上一起吃我们做的饭，临走还要带一点我们自己晒的茶' }], reason: '采访原话' },
     ],
     gaps: [], as_of: 'now',
     search_log: ['原生旅游', '国庆 徒步 预订', '基诺山 向导', '村寨 旅游 数据', '雨林 徒步 村民'].map(query => ({ query, lang: 'zh' })).concat([{ query: 'rural tourism hiking trend', lang: 'en' }]),
@@ -100,6 +101,40 @@ test('真实案例回归：飞猪软文式成稿会被拦（素材即本次返�
   const { s, t, a, b } = setup(); await advance(s, t, a, b);
   const real = draft({ data: '飞猪披露的国庆数据里，徒步和登山体验的预订用户规模增加近80%。', analysis: '有人带路，风景才变成经历。飞猪说这组数字说明游客转向。' });
   assert.throws(() => validate(s, t.id, 'write', real), /品牌软文|上限/);
+  s.close();
+});
+
+test('国外对照：最多 1 个、必须写机制映射和读者意义，写不出就留空', async () => {
+  const { s, t, a, b } = setup();
+  const contents = stageContents(a, b);
+  contents.research.foreign_parallels = [{ case: '日本“里山”社区营造让村民做向导', mechanism: '同样是把当地生活变成可参与的体验', reader_meaning: '中国读者关心周末去哪玩，这种玩法在基诺山已经出现' }];
+  const task = await callTool(s, 'claim_task', { topic_id: t.id, actor: 't' });
+  await callTool(s, 'submit_result', { topic_id: t.id, stage: 'editor', actor: 't', basis: task.basis, claim_id: task.claim_id, content: contents.editor });
+  const task2 = await callTool(s, 'claim_task', { topic_id: t.id, actor: 't' });
+  assert.doesNotThrow(() => validate(s, t.id, 'research', contents.research));
+  contents.research.foreign_parallels.push({ case: '再来一个', mechanism: 'm', reader_meaning: 'r' });
+  assert.throws(() => validate(s, t.id, 'research', contents.research), /1 element/);
+  contents.research.foreign_parallels = [{ case: '只有案例没有映射', mechanism: '', reader_meaning: '' }];
+  assert.throws(() => validate(s, t.id, 'research', contents.research));
+  await callTool(s, 'release_task', { claim_id: task2.claim_id });
+  s.close();
+});
+
+test('引用占比：长段照搬原文拒收，改写为自己的话通过', async () => {
+  const { s, t, a, b } = setup(); await advance(s, t, a, b);
+  const stuffed = draft({
+    open: '一边是人造古镇里人挤人排队，另一边基诺山的雨林里完全是另一种景象。',
+    analysis: '向导岩先生说：“以前游客拍完照就走，现在跟着我们认路、蹚水，晚上一起吃我们做的饭，临走还要带一点我们自己晒的茶。”',
+  });
+  stuffed.drafts[0].blocks[3].refs = ['F3'];
+  assert.throws(() => validate(s, t.id, 'write', stuffed), /引用原文/);
+  const rewritten = draft({
+    analysis: '向导岩先生说了句实在话：以前游客拍完照就走，现在住下来认路蹚水、跟村民同桌吃饭——有人带路，风景才变成经历。',
+  });
+  rewritten.drafts[0].blocks[3].refs = ['F3'];
+  assert.doesNotThrow(() => validate(s, t.id, 'write', rewritten));
+  const ratio = quoteRatio(s, t.id, rewritten.drafts[0]);
+  assert.ok(ratio <= 0.2, `改写稿引用占比应低于上限，实际 ${ratio}`);
   s.close();
 });
 
