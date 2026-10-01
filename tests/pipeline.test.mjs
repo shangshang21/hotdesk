@@ -10,13 +10,17 @@ import { parseRSS,parsePage,Adapters,fetchRaw } from '../src/adapters.mjs';
 import { createApp } from '../src/server.mjs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { addConceptSource,enrichResearch,addConceptIncrement } from './depth-fixture.mjs';
+let conceptSource;
 
 const root=resolve('../../work/hotdesk-tests');mkdirSync(root,{recursive:true});
-function setup(){const dir=mkdtempSync(join(root,'case-')),s=new Store(dir),t=s.createTopic('[TEST] 社区阅览室调整开放时间');const source=s.addSource(t.id,{kind:'article',platform:'web',title:'测试公告',url:'https://example.org/notice',body:'社区阅览室将于十月一日起延长开放至晚上九点。'});const comment=s.addSource(t.id,{kind:'comment',platform:'tieba',title:'测试评论',url:'https://example.org/comment/1',body:'下班后终于能去看书了。'});return {s,t,source,comment,dir};}
+function setup(){const dir=mkdtempSync(join(root,'case-')),s=new Store(dir),t=s.createTopic('[TEST] 社区阅览室调整开放时间');const source=s.addSource(t.id,{kind:'article',platform:'web',title:'测试公告',url:'https://example.org/notice',body:'社区阅览室将于十月一日起延长开放至晚上九点。'});const comment=s.addSource(t.id,{kind:'comment',platform:'tieba',title:'测试评论',url:'https://example.org/comment/1',body:'下班后终于能去看书了。'});conceptSource=addConceptSource(s,t.id);return {s,t,source,comment,dir};}
 const noBenchmark=c=>Object.assign(c,{status:'none_found',items:[],gaps:[],consensus:[]});
 const withIncrements=d=>{const f=d.blocks.findIndex(b=>b.kind==='fact'&&b.refs.length);return {...d,increments:d.increments||[{type:'background',block_index:f,note:'测试背景'},{type:'impact',block_index:0,note:'测试影响'},{type:'counterintuitive',block_index:d.blocks.length-1,note:'测试判断'}]};};
 function content(stage,source,comment){const c=structuredClone(examples[stage]);if(stage==='benchmark')noBenchmark(c);if(stage==='editor')c.metrics.freshness.score=80;
   if(stage==='research')c.facts=[{id:'F1',claim:'测试公告称阅览室十月一日起开放至晚九点。',status:'confirmed',evidence:[{source_id:source.id,quote:'延长开放至晚上九点'}],reason:'公告原文'}];
+  if(stage==='research')enrichResearch(c,conceptSource);
+  if(stage==='write')c.drafts=c.drafts.map(addConceptIncrement);
   if(stage==='opinion')c.focus=[{id:'O1',text:'该样本关心下班后的使用时间。',source_ids:[comment.id]}];
   return c;
 }
@@ -25,7 +29,7 @@ async function advance(s,t,source,comment,until='review'){
 }
 test('完整流水线、引用导出、人工确认、数据更新失效、重启持久性',async()=>{
   const {s,t,source,comment,dir}=setup();await advance(s,t,source,comment);assert.equal(s.next(t.id),'done');assert.match(exportMarkdown(s,t.id),/待人工审核/);const approved=s.approve(t.id);assert.equal(s.topic(t.id).approved_artifact,approved);
-  assert.match(exportMarkdown(s,t.id),/人工已确认/);s.addSource(t.id,{kind:'article',platform:'web',title:'更正',url:'https://example.org/update',body:'开放时间进一步调整，请以更正为准。'});assert.equal(s.next(t.id),'editor');assert.equal(s.topic(t.id).approved_artifact,null);assert.equal(s.artifacts(t.id).length,7);assert.ok(s.artifacts(t.id).every(a=>!a.valid));s.close();const reopened=new Store(dir);assert.equal(reopened.sources(t.id).length,3);assert.equal(reopened.artifacts(t.id).length,7);reopened.close();
+  assert.match(exportMarkdown(s,t.id),/人工已确认/);s.addSource(t.id,{kind:'article',platform:'web',title:'更正',url:'https://example.org/update',body:'开放时间进一步调整，请以更正为准。'});assert.equal(s.next(t.id),'research');assert.equal(s.topic(t.id).approved_artifact,null);assert.equal(s.artifacts(t.id).length,7);assert.ok(s.latest(t.id,'editor'));assert.ok(s.artifacts(t.id).filter(a=>a.stage!=='editor').every(a=>!a.valid));s.close();const reopened=new Store(dir);assert.equal(reopened.sources(t.id).length,4);assert.equal(reopened.artifacts(t.id).length,7);reopened.close();
 });
 test('拒绝伪造引文、评论冒充事实、未列入资料包的事实和未知事实入稿',async()=>{
   const {s,t,source,comment}=setup();const c=content('research',source,comment);c.facts[0].evidence[0].quote='不存在的原文';assert.throws(()=>validate(s,t.id,'research',c),/未在原始素材/);c.facts[0].evidence[0]={source_id:comment.id,quote:comment.body};assert.throws(()=>validate(s,t.id,'research',c),/评论或热榜/);
@@ -53,7 +57,7 @@ test('RSS/Atom 解析与贴吧/小红书公开页面解析',()=>{
 test('TrendRadar SQLite 只读接入、历史排名与幂等导入',()=>{
   const {s,dir}=setup(),path=join(dir,'trendradar.db');const db=new DatabaseSync(path);db.exec("CREATE TABLE news_items(id INTEGER,title TEXT,platform_id TEXT,rank INTEGER,url TEXT,created_at TEXT,updated_at TEXT); CREATE TABLE rank_history(news_item_id INTEGER,rank INTEGER,created_at TEXT); INSERT INTO news_items VALUES(1,'数据库测试','baidu',3,'https://example.org/news','2026-09-28 10:00:00','2026-09-28 11:00:00'); INSERT INTO rank_history VALUES(1,8,'2026-09-28 10:00:00'),(1,3,'2026-09-28 11:00:00');");db.close();const before=hash(readFileSync(path).toString('base64'));const a=new Adapters(s);const r=a.importTrendRadar(path);a.importTrendRadar(path);assert.equal(hash(readFileSync(path).toString('base64')),before);const d=s.detail(r.topic_ids[0]);assert.equal(d.sources.length,1);assert.equal(d.movements[0].delta,5);s.close();
 });
-test('同事件合并保留原话题和版本，素材归集',()=>{const {s,t}=setup();const to=s.createTopic('同一事件另一标题');s.merge(t.id,to.id);assert.equal(s.sources(to.id).length,2);assert.equal(s.topic(t.id).merged_into,to.id);assert.equal(s.sources(t.id).length,2);s.close();});
+test('同事件合并保留原话题和版本，素材归集',()=>{const {s,t}=setup();const to=s.createTopic('同一事件另一标题');s.merge(t.id,to.id);assert.equal(s.sources(to.id).length,3);assert.equal(s.topic(t.id).merged_into,to.id);assert.equal(s.sources(t.id).length,3);s.close();});
 test('公共采集阻止内网地址',async()=>{const {s}=setup();await assert.rejects(fetchRaw(s,'http://127.0.0.1:1/'),/不允许访问内网/);s.close();});
 test('Web API 会话/跨站限制，失败编辑不丢旧版本，拒绝过期编辑',async()=>{
   const {s,t,source,comment}=setup();await advance(s,t,source,comment,'editor');const server=createApp(s);await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}`;

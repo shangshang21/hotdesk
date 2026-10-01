@@ -5,7 +5,9 @@ import {squash} from './verify.mjs';
 
 const text=z.string().min(1).max(30000), refs=z.array(z.string()).max(100);
 // Depth = information increments beyond "what happened". Evidence types must sit in cited fact blocks.
-export const INCREMENT_TYPES=['background','data','comparison','impact','counterintuitive'];
+export const INCREMENT_TYPES=['background','data','comparison','impact','counterintuitive','concept'];
+// Research stop condition: concrete minimums instead of "good enough".
+export const RESEARCH_MIN={queries:6,english_queries:1,source_sites:2,essence:1};
 const EVIDENCE_INCREMENTS=['background','data','comparison'];
 export const COPY_RUN=20;
 const metric=z.object({score:z.number().min(0).max(100).nullable(),reason:text,confidence:z.enum(['low','medium','high'])});
@@ -15,7 +17,7 @@ const causalChain=z.object({from:text,to:text,mechanism:text,fact_ids:refs,uncer
 const scenario=z.object({premise:text,result:text,watch_for:z.array(text).min(1),invalidators:z.array(text).min(1),fact_ids:refs});
 export const schemas={
   editor:z.object({grade:z.enum(['S','A','B']),reason:text,recommendation:z.enum(['research','observe','skip']),metrics:z.object({freshness:metric,growth:metric,controversy:metric,mass_interest:metric,finance_relevance:metric,tech_relevance:metric,saturation:metric}),missing:z.array(text),reader_entry:readerEntry.optional()}),
-  research:z.object({facts:z.array(z.object({id:z.string().min(1),claim:text,status:z.enum(['confirmed','disputed','unknown']),evidence:z.array(z.object({source_id:z.string(),quote:text})).max(10),reason:text})).max(50),gaps:z.array(text),as_of:text,causal_chains:z.array(causalChain).optional(),scenarios:z.array(scenario).optional()}),
+  research:z.object({facts:z.array(z.object({id:z.string().min(1),claim:text,status:z.enum(['confirmed','disputed','unknown']),evidence:z.array(z.object({source_id:z.string(),quote:text})).max(10),reason:text})).max(50),gaps:z.array(text),as_of:text,search_log:z.array(z.object({query:text,lang:z.enum(['zh','en','other'])})).max(40),essence:z.array(z.object({id:z.string().min(1),insight:text,plain:text,term:z.string().max(40).optional()})).max(3),causal_chains:z.array(causalChain).optional(),scenarios:z.array(scenario).optional()}),
   opinion:z.object({status:z.enum(['available','insufficient']),sample_note:text,focus:z.array(point),support:z.array(point),oppose:z.array(point),questions:z.array(point),keywords:z.array(z.string()).max(30),platform_differences:z.array(point),limitations:z.array(text)}),
   benchmark:z.object({status:z.enum(['available','none_found']),searched:z.array(text).max(20),items:z.array(z.object({source_id:z.string(),tier:z.enum(['authority','viral']),angle:text,structure:text,title_pattern:text,hook:text,strengths:z.array(text),missed:z.array(text)})).max(10),consensus:z.array(text),gaps:z.array(z.object({id:z.string().min(1),text,why:text,fact_ids:refs})).max(10)}),
   angles:z.object({angles:z.array(z.object({id:z.string(),name:text,gap_ids:refs.optional(),differs_from:text.optional(),hook:text,audience_value:text,fact_ids:refs,opinion_ids:refs,titles:z.array(text).min(1).max(20),gaps:z.array(text),reader_promise:text.optional(),core_contrast:text.optional(),template:z.enum(['conflict','story','explanation']).optional(),fulfillment:text.optional()})).min(1).max(5),recommendation:text}),
@@ -24,20 +26,20 @@ export const schemas={
 };
 export const examples={
   editor:{grade:'A',reason:'基于现有素材说明推荐原因',recommendation:'research',metrics:Object.fromEntries(['freshness','growth','controversy','mass_interest','finance_relevance','tech_relevance','saturation'].map(k=>[k,{score:null,reason:'数据不足',confidence:'low'}])),missing:[]},
-  research:{facts:[{id:'F1',claim:'一条有明确边界的事实主张',status:'confirmed',evidence:[{source_id:'s_实际编号',quote:'从原始素材逐字摘录的支持片段'}],reason:'证据如何支持该主张'}],gaps:[],as_of:now()},
+  research:{facts:[{id:'F1',claim:'一条有明确边界的事实主张',status:'confirmed',evidence:[{source_id:'s_实际编号',quote:'从原始素材逐字摘录的支持片段'}],reason:'证据如何支持该主张'}],gaps:[],as_of:now(),search_log:[{query:'事件关键词',lang:'zh'},{query:'事件 + 专家/评论',lang:'zh'},{query:'event keywords in English',lang:'en'}],essence:[{id:'E1',insight:'这事背后真正的原因或机制（给自己看的，可以想得深）',plain:'说白了，进厂多挣那几百块，买不来自由——很多人心里早算过这笔账了。',term:'可选：内部参考用的概念名，不写进文章'}]},
   opinion:{status:'available',sample_note:'平台、帖子数、评论数、排序和时间范围',focus:[{id:'O1',text:'这一批评论中的讨论焦点',source_ids:['s_实际评论编号']}],support:[],oppose:[],questions:[],keywords:[],platform_differences:[],limitations:['采样不代表全部用户']},
   benchmark:{status:'available',searched:['搜索用的关键词一','关键词二'],items:[{source_id:'s_对标文章编号',tier:'authority',angle:'它的切入角度',structure:'段落结构，如：结果→过程→背景→评价',title_pattern:'标题套路',hook:'开头怎么抓人',strengths:['值得学的写法'],missed:['它没写到的信息或视角']}],consensus:['各家都写了的内容，我们不再重复'],gaps:[{id:'G1',text:'没人写的切入点',why:'为什么读者会在意',fact_ids:['F1']}]},
   angles:{angles:[{id:'A1',name:'角度名称',gap_ids:['G1'],differs_from:'和哪篇对标文章不同、差在哪',hook:'读者为什么点开',audience_value:'读者关心什么',fact_ids:['F1'],opinion_ids:['O1'],titles:['标题候选一','标题候选二'],gaps:[]}],recommendation:'推荐理由'},
-  write:{angle_id:'A1',drafts:[{platform:'toutiao',title:'让人忍不住点开的标题',title_refs:['F1'],blocks:[{kind:'transition',text:'开头三句直接抛冲突，把读者拽进来。',refs:[]},{kind:'fact',text:'事情本身，要说准。',refs:['F1']},{kind:'opinion',text:'评论区有人直接开怼：……',refs:['O1']},{kind:'analysis',text:'自己的态度和判断，可以有立场。',refs:[]},{kind:'transition',text:'结尾抛一个让人想站队的问题。',refs:[]}],increments:[{type:'background',block_index:1,note:'交代来龙去脉'},{type:'impact',block_index:3,note:'这事和普通读者有什么关系'},{type:'counterintuitive',block_index:3,note:'一个和主流说法不同的判断'}]}],notes:[]},
+  write:{angle_id:'A1',drafts:[{platform:'toutiao',title:'让人忍不住点开的标题',title_refs:['F1'],blocks:[{kind:'transition',text:'开头三句直接抛冲突，把读者拽进来。',refs:[]},{kind:'fact',text:'事情本身，要说准。',refs:['F1']},{kind:'opinion',text:'评论区有人直接开怼：……',refs:['O1']},{kind:'analysis',text:'自己的态度和判断，可以有立场。',refs:[]},{kind:'transition',text:'结尾抛一个让人想站队的问题。',refs:[]}],increments:[{type:'concept',block_index:3,note:'用自己的话讲出 E1 的本质'},{type:'background',block_index:1,note:'交代来龙去脉'},{type:'impact',block_index:3,note:'这事和普通读者有什么关系'},{type:'counterintuitive',block_index:3,note:'一个和主流说法不同的判断'}]}],notes:[]},
   review:{verdict:'pass',issues:[{severity:'info',platform:'toutiao',text:'标题还可以更狠：……',refs:[]}],summary:'事实无硬伤；标题和开头的抓人程度评价',checks:{facts:true,opinion_attribution:true,title_support:true,cross_platform_consistency:true}}
 };
 const instructions={
   editor:'判断这个热点值不值得写、能不能吸引点击。重点看：时效（刚上榜、正在发酵的优先，已经凉了的降级）、冲突和话题性（有没有能吵起来的点）、大众关联（普通人会不会关心）、有没有可挖的料。controversy 和 mass_interest 是核心指标。缺数据的指标用 null，不要把排名硬换算成流量。',
-  research:'查清来龙去脉，挖能写的料：起因、经过、反转、细节、数字、各方说法、槽点。热榜标题没有正文时，先 release_task，用外部搜索/浏览工具找到原始报道或帖子，import_sources 后再领取。事实要准：evidence.quote 必须是素材里真实存在的连续原文；评论和热榜不能当事实证据；有争议标 disputed，查不到标 unknown。不需要面面俱到，够写一篇就行。',
+  research:'查清来龙去脉，挖能写的料：起因、经过、反转、细节、数字、各方说法。查到满足下面的最低清单才算完，不能“差不多就行”：① search_log 至少 6 个关键词，至少 1 个英文（找国外学者、媒体怎么讨论同类现象）；② 事实证据来自至少 2 个不同网站；③ essence 至少 1 条：想明白“这事背后到底是怎么回事”。可以参考国内外专家、深度报道对同类现象的分析来想，但 plain 要写成接地气的大白话，像自己琢磨出来的，不提“某经济学家说”，不必用专有名词，不搬国外案例。热榜标题没有正文时，先 release_task，用 collect_url 采集原文（补素材只让本步及之后重做，不会打回初筛），再重新领取。事实要准：evidence.quote 必须是素材里真实存在的连续原文；评论和热榜不能当事实证据；有争议标 disputed，查不到标 unknown。',
   opinion:'评论是加分项，不是必需品。没有评论就直接返回 insufficient 和空数组，别卡流程。有评论就挖：争议点、对立阵营、金句、高频槽点、最能引发站队的说法，放进 focus/support/oppose/questions，金句原话放进 keywords。每个观点引用具体评论 ID；评论里的指控只是网友说法，不能当成事实。',
   benchmark:'对标拆解：先用外部搜索找同一话题已发布的文章，权威媒体/机构（新华社、澎湃、界面、财新、三联等）和爆款自媒体各找 2–3 篇，用 collect_url 加 as_benchmark=authority/viral 采集入库（需先 release_task，入库后重新领取）。逐篇拆：切入角度、段落结构、标题套路、开头钩子、值得学的写法、它漏掉的信息或视角。再总结 consensus（大家都写了的，我们不重复）和 gaps（没人写、读者又在意的切入点，尽量挂上 Fact ID）。确实搜不到时 status=none_found，searched 至少列 2 个试过的关键词。学结构和套路，不抄句子：成稿与对标文章有连续 20 个字相同会被拒收。',
   angles:'给 1–5 个切入角度，目标是让人想点进来。优先：冲突、反转、反常识、和普通人利益相关、能引发站队的。每个角度给 5–10 个标题，至少覆盖这几种写法：反问式、站队式（“这事你站哪边”）、反转式（“没想到……”）、网友扒出式（“网友：……”，前提是评论里真有人这么说）、数字细节式。标题可以夸张语气、可以有锋芒，但不能编造没发生的事实。',
-  write:'根据 selected_angle（若为空选首个）写稿。按 production_policy 默认交付三平台；用户指定单平台时可少写。开头尽快抛出具体问题或反差，短句短段、口语、有立场；结尾提出正文材料支持的问题。标题必须有资料依据；事实块引用 Fact ID，网友说法引用 Opinion ID 并注明归属；unknown 不进稿，disputed 只写有归属的争议说法。analysis 和 transition 可不带引用，但不能夹带新事实。不要把资料限制与审核过程混入发布正文。深度靠信息增量：每篇 increments 至少 3 条、至少 2 种类型（background 来龙去脉 / data 数据 / comparison 对比 / impact 和普通人的关系 / counterintuitive 反常识判断），block_index 指向兑现它的段落；background/data/comparison 必须落在带 Fact ID 的 fact 段。对标文章里的句子不能照抄（连续 20 字相同即拒收）。',
+  write:'根据 selected_angle（若为空选首个）写稿。按 production_policy 默认交付三平台；用户指定单平台时可少写。开头尽快抛出具体问题或反差，短句短段、口语、有立场；结尾提出正文材料支持的问题。标题必须有资料依据；事实块引用 Fact ID，网友说法引用 Opinion ID 并注明归属；unknown 不进稿，disputed 只写有归属的争议说法。analysis 和 transition 可不带引用，但不能夹带新事实。不要把资料限制与审核过程混入发布正文。深度靠信息增量：每篇 increments 至少 3 条、至少 2 种类型，其中必须有 1 条 concept：用自己的话、本土化的说法把 research 里 essence 的本质讲出来（“说白了……”），点到为止，不提专家学者、不堆术语、不讲课、不搬国外案例，文章整体仍然轻松、带情绪（其他类型：background 来龙去脉 / data 数据 / comparison 对比 / impact 和普通人的关系 / counterintuitive 反常识判断），block_index 指向兑现它的段落；background/data/comparison 必须落在带 Fact ID 的 fact 段。对标文章里的句子不能照抄（连续 20 字相同即拒收）。',
   review:'只查硬伤，不挑文风：人名、数字、时间、原话是否和素材一致；有没有把网友说法写成事实；有没有编造没发生的事；有没有人身攻击、地域或性别攻击、涉政等平台高危内容。硬伤记 error 并返回 revise/blocked；小瑕疵记 warning，仍可 pass。另外逐条核对 increments 是否真的提供了对标文章没有的信息，空洞的记 warning；用 info 评价标题和开头够不够抓人，给出更狠的改法。通过后仍由人工决定是否发布。'
 };
 export function context(store,id,stage=store.next(id)) {
@@ -78,6 +80,11 @@ export function validate(store,id,stage,raw){
     for(const f of c.facts){if(f.status!=='unknown'&&!f.evidence.length)throw new Error(`${f.id} 缺少证据`);
       for(const e of f.evidence){const s=sourceMap.get(e.source_id);if(!s)throw new Error('事实证据来源不存在');if(s.kind==='comment'||s.kind==='hotlist')throw new Error('评论或热榜不能直接作为事实证据，请取得原文');if(!TRUSTED_ORIGINS.includes(verificationOf(s)))throw new Error(`${f.id} 的来源 ${s.id} 未通过核验（${s.metadata?.verification?.reason||'Agent 导入未核对'}），不能作事实证据；请用 collect_url 直接采集原文，或由人工在看板导入`);if(!normalize(`${s.title}\n${s.body}`).includes(normalize(e.quote)))throw new Error(`${f.id} 引文未在原始素材中找到`);}
     }
+    const log=c.search_log;if(log.length<RESEARCH_MIN.queries||log.filter(q=>q.lang==='en').length<RESEARCH_MIN.english_queries)throw new Error(`查资料不够：search_log 至少 ${RESEARCH_MIN.queries} 个关键词，其中至少 ${RESEARCH_MIN.english_queries} 个英文（现在 ${log.length} 个，英文 ${log.filter(q=>q.lang==='en').length} 个）`);
+    const sites=new Set(c.facts.filter(f=>f.status!=='unknown').flatMap(f=>f.evidence).map(e=>{try{return new URL(sourceMap.get(e.source_id).url).hostname.replace(/^(www|m)\./,'');}catch{return null;}}).filter(Boolean));
+    if(sites.size<RESEARCH_MIN.source_sites)throw new Error(`事实证据只来自 ${sites.size} 个网站，至少要 ${RESEARCH_MIN.source_sites} 个不同网站的原文互相印证`);
+    if(c.essence.length<RESEARCH_MIN.essence)throw new Error('至少写 1 条 essence：这事背后到底是怎么回事，并用大白话说出来');
+    unique(c.essence);
     const ownFacts=new Map(c.facts.map(f=>[f.id,f]));
     for(const item of [...(c.causal_chains||[]),...(c.scenarios||[])]){
       if(!item.fact_ids.length)throw new Error('因果链或情景必须有事实依据');
@@ -115,6 +122,7 @@ export function validate(store,id,stage,raw){
       for(const b of d.blocks){const map=b.kind==='fact'?facts:b.kind==='opinion'?opinionMap:evidence;checkIds(b.refs,map,'正文');if((b.kind==='fact'||b.kind==='opinion')&&!b.refs.length)throw new Error('事实段和网友说法段需有引用');}
       for(const ref of [...d.title_refs,...d.blocks.flatMap(b=>b.refs)])if(facts.get(ref)?.status==='unknown')throw new Error('未知主张不能进入成稿');
       if(d.increments.length<3||new Set(d.increments.map(i=>i.type)).size<2)throw new Error(`${d.platform} 信息增量不足：至少 3 条、至少 2 种类型`);
+      if(!d.increments.some(i=>i.type==='concept'))throw new Error(`${d.platform} 缺少 concept 增量：用自己的话把这事的本质讲出来`);
       for(const inc of d.increments){const b=d.blocks[inc.block_index];if(!b)throw new Error(`信息增量指向不存在的段落：${inc.block_index}`);if(EVIDENCE_INCREMENTS.includes(inc.type)&&(b.kind!=='fact'||!b.refs.length))throw new Error(`${inc.type} 类增量须落在带 Fact ID 的 fact 段（第 ${inc.block_index} 段不是）`);}
     }
     const copied=copiedRun(c.drafts,sources.filter(s=>s.kind==='benchmark'));
