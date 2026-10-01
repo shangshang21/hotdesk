@@ -1,6 +1,6 @@
 {
   "name": "hotdesk-local",
-  "version": "0.4.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "本地热点内容生产工作台 / Local-first agent-ready content pipeline",
