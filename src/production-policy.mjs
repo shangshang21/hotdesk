@@ -21,7 +21,8 @@ export const productionPolicy={
   },
   brand_cap:{
     // Commercial platforms cited as data providers must not become the article's spine.
-    names:['飞猪','携程','同程','去哪儿','美团','大众点评','饿了么','京东','淘宝','天猫','拼多多','盒马','叮咚买菜','瑞幸','蜜雪冰城'],
+    // Note: 去哪儿 excluded — it collides with the everyday phrase “去哪儿”.
+    names:['飞猪','携程','同程','美团','大众点评','饿了么','京东','淘宝','天猫','拼多多','盒马','叮咚买菜','瑞幸','蜜雪冰城'],
     max:1,
     note:'把平台数据写进稿子时，平台名标注一次即可；话题主角本身就是该品牌时不受此限制'
   },
