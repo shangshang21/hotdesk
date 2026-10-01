@@ -19,7 +19,7 @@ export function createApp(store=new Store()){
     try{
       if(req.headers.origin&&req.headers.origin!==origin)return send(403,{error:'不允许跨站请求'});
       if(req.method==='GET'){
-        if(url.pathname==='/api/health')return send(200,{app:'hotdesk-local',version:'0.1.0',data_dir:store.dir});
+        if(url.pathname==='/api/health')return send(200,{app:'hotdesk-local',version:'0.3.0',data_dir:store.dir});
         if(url.pathname==='/api/session')return send(200,{token});
         if(url.pathname==='/api/state')return send(200,{topics:store.list(),jobs:store.jobs(),model_configured:modelConfigured(),config:{feeds:store.setting('feeds',[]),trendradar_path:store.setting('trendradar_path',''),newsnow_base:store.setting('newsnow_base','http://127.0.0.1:4444/api/s')},claims:store.db.prepare("SELECT topic_id,stage,actor,expires_at FROM claims WHERE status='active' AND expires_at>?").all(now())});
         if(url.pathname.startsWith('/api/topic/'))return send(200,store.detail(url.pathname.split('/').at(-1)));
