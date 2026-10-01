@@ -10,7 +10,7 @@ import {replaceUploadImages} from './upload-images.mjs';
 
 const names={toutiao:'今日头条',penguin:'企鹅号',baijiahao:'百家号'};
 // Current-affairs posts must show where the information came from; build it from the facts the draft cites.
-const SITES={'xinhuanet.com':'新华网','news.cn':'新华网','people.com.cn':'人民网','cctv.com':'央视网','cntv.cn':'央视网','gmw.cn':'光明网','thepaper.cn':'澎湃新闻','chinanews.com.cn':'中国新闻网','163.com':'网易','sina.cn':'新浪','sina.com.cn':'新浪','qq.com':'腾讯网','ifeng.com':'凤凰网','jiemian.com':'界面新闻','caixin.com':'财新','bilibili.com':'哔哩哔哩','baidu.com':'百度'};
+const SITES={'xinhuanet.com':'新华网','news.cn':'新华网','people.com.cn':'人民网','people.cn':'人民网','cctv.com':'央视网','cntv.cn':'央视网','gmw.cn':'光明网','thepaper.cn':'澎湃新闻','chinanews.com.cn':'中国新闻网','163.com':'网易','sina.cn':'新浪','sina.com.cn':'新浪','qq.com':'腾讯网','ifeng.com':'凤凰网','jiemian.com':'界面新闻','stcn.com':'证券时报','caixin.com':'财新','bilibili.com':'哔哩哔哩','baidu.com':'百度','sohu.com':'搜狐'};
 export function sourceLine(store,id,draft){
   const facts=new Map((store.latest(id,'research')?.content.facts||[]).map(f=>[f.id,f])),sources=new Map(store.sources(id).map(s=>[s.id,s]));
   const refs=new Set([...draft.title_refs,...draft.blocks.flatMap(b=>b.refs)]),labels=new Set();
