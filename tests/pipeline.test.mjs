@@ -10,7 +10,7 @@ import { parseRSS,parsePage,Adapters,fetchRaw } from '../src/adapters.mjs';
 import { createApp } from '../src/server.mjs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { addConceptSource,enrichResearch,addConceptIncrement } from './depth-fixture.mjs';
+import { addConceptSource,enrichResearch,addConceptIncrement,factcheckFor } from './depth-fixture.mjs';
 let conceptSource;
 
 const root=resolve('../../work/hotdesk-tests');mkdirSync(root,{recursive:true});
@@ -25,16 +25,16 @@ function content(stage,source,comment){const c=structuredClone(examples[stage]);
   return c;
 }
 async function advance(s,t,source,comment,until='review'){
-  for(const stage of ['editor','research','opinion','benchmark','angles','write','review']){const task=await callTool(s,'claim_task',{topic_id:t.id,actor:'test-agent'});await callTool(s,'submit_result',{topic_id:t.id,stage,actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:content(stage,source,comment)});if(stage===until)break;}
+  for(const stage of ['editor','research','opinion','benchmark','angles','write','factcheck','review']){const actor=stage==='factcheck'?'checker':'test-agent';const task=await callTool(s,'claim_task',{topic_id:t.id,actor});await callTool(s,'submit_result',{topic_id:t.id,stage,actor,basis:task.basis,claim_id:task.claim_id,content:stage==='factcheck'?await factcheckFor(s,t.id):content(stage,source,comment)});if(stage===until)break;}
 }
 test('完整流水线、引用导出、人工确认、数据更新失效、重启持久性',async()=>{
   const {s,t,source,comment,dir}=setup();await advance(s,t,source,comment);assert.equal(s.next(t.id),'done');assert.match(exportMarkdown(s,t.id),/待人工审核/);const approved=s.approve(t.id);assert.equal(s.topic(t.id).approved_artifact,approved);
-  assert.match(exportMarkdown(s,t.id),/人工已确认/);s.addSource(t.id,{kind:'article',platform:'web',title:'更正',url:'https://example.org/update',body:'开放时间进一步调整，请以更正为准。'});assert.equal(s.next(t.id),'research');assert.equal(s.topic(t.id).approved_artifact,null);assert.equal(s.artifacts(t.id).length,7);assert.ok(s.latest(t.id,'editor'));assert.ok(s.artifacts(t.id).filter(a=>a.stage!=='editor').every(a=>!a.valid));s.close();const reopened=new Store(dir);assert.equal(reopened.sources(t.id).length,4);assert.equal(reopened.artifacts(t.id).length,7);reopened.close();
+  assert.match(exportMarkdown(s,t.id),/人工已确认/);s.addSource(t.id,{kind:'article',platform:'web',title:'更正',url:'https://example.org/update',body:'开放时间进一步调整，请以更正为准。'});assert.equal(s.next(t.id),'research');assert.equal(s.topic(t.id).approved_artifact,null);assert.equal(s.artifacts(t.id).length,8);assert.ok(s.latest(t.id,'editor'));assert.ok(s.artifacts(t.id).filter(a=>a.stage!=='editor').every(a=>!a.valid));s.close();const reopened=new Store(dir);assert.equal(reopened.sources(t.id).length,4);assert.equal(reopened.artifacts(t.id).length,8);reopened.close();
 });
 test('拒绝伪造引文、评论冒充事实、未列入资料包的事实和未知事实入稿',async()=>{
   const {s,t,source,comment}=setup();const c=content('research',source,comment);c.facts[0].evidence[0].quote='不存在的原文';assert.throws(()=>validate(s,t.id,'research',c),/未在原始素材/);c.facts[0].evidence[0]={source_id:comment.id,quote:comment.body};assert.throws(()=>validate(s,t.id,'research',c),/评论或热榜/);
-  await advance(s,t,source,comment,'angles');const w=content('write',source,comment);w.drafts[0].blocks[0].refs=['F999'];assert.throws(()=>validate(s,t.id,'write',w),/引用不存在/);
-  const old=s.latest(t.id,'research');old.content.facts[0].status='unknown';s.db.prepare('UPDATE artifacts SET content=? WHERE id=?').run(JSON.stringify(old.content),old.id);assert.throws(()=>validate(s,t.id,'write',content('write',source,comment)),/未知主张/);s.close();
+  await advance(s,t,source,comment,'write');const fc={verdict:'pass',summary:'x',claims:[{id:'K1',platform:'toutiao',where:'body',text:'事情本身',type:'fact',fact_ids:['F999'],opinion_ids:[],verdict:'supported',note:'x'}]};assert.throws(()=>validate(s,t.id,'factcheck',fc),/引用不存在/);
+  const old=s.latest(t.id,'research');old.content.facts[0].status='unknown';s.db.prepare('UPDATE artifacts SET content=? WHERE id=?').run(JSON.stringify(old.content),old.id);fc.claims[0].fact_ids=['F1'];assert.throws(()=>validate(s,t.id,'factcheck',fc),/unknown/);s.close();
 });
 test('任务租约互斥，过期与输入变化后拒绝提交',async()=>{
   const {s,t,source,comment}=setup();let a=await callTool(s,'claim_task',{topic_id:t.id,actor:'one'});await assert.rejects(callTool(s,'claim_task',{topic_id:t.id,actor:'two'}),/已有 Agent/);
@@ -78,11 +78,26 @@ test('真实 MCP stdio 握手、工具发现、领取与提交共用 SQLite，�
     const result=await client.callTool({name:'submit_result',arguments:{topic_id:t.id,stage:'editor',actor:'mcp-test',basis:c.basis,claim_id:c.claim_id,content:content('editor',source,comment)}});assert.ok(!result.isError);assert.equal(s.latest(t.id,'editor').actor,'mcp-test');
   }finally{await client.close();s.close();}
 });
-test('营销稿规则：单平台可成稿，分析段免引用，网友说法仍须引用；warning 可通过，error 拦截',async()=>{
-  const {s,t,source,comment}=setup();await advance(s,t,source,comment);
+test('自由写稿：单平台可成稿、正文不许写编号；核查须他人完成、带数字的句子不能漏、不通过就打回重写；warning 可通过，error 拦截',async()=>{
+  const {s,t,source,comment}=setup();await advance(s,t,source,comment,'write');
   const w=content('write',source,comment);assert.equal(w.drafts.length,1);assert.doesNotThrow(()=>validate(s,t.id,'write',w));
   const dup=structuredClone(w);dup.drafts.push(structuredClone(w.drafts[0]));assert.throws(()=>validate(s,t.id,'write',dup),/同一平台/);
-  const bare=structuredClone(w);bare.drafts[0].blocks.find(b=>b.kind==='opinion').refs=[];assert.throws(()=>validate(s,t.id,'write',bare),/需有引用/);
+  const tagged=structuredClone(w);tagged.drafts[0].body+='\n\n据报道[F1]阅览室延时。';assert.throws(()=>validate(s,t.id,'write',tagged),/编号/);
+  const short=structuredClone(w);short.drafts[0].body='只有一段。';assert.throws(()=>validate(s,t.id,'write',short),/至少 3 段/);
+  // Self-check is refused; the checker must be a different actor.
+  const own=await callTool(s,'claim_task',{topic_id:t.id,actor:'test-agent'});await assert.rejects(callTool(s,'submit_result',{topic_id:t.id,stage:'factcheck',actor:'test-agent',basis:own.basis,claim_id:own.claim_id,content:await factcheckFor(s,t.id)}),/另一个 Agent/);s.release(own.claim_id);
+  // A number sentence left unchecked is refused.
+  const before=structuredClone(s.latest(t.id,'write').content);before.drafts[0].body+='\n\n门票涨了30%，排队两小时。';s.db.prepare('UPDATE artifacts SET content=? WHERE id=?').run(JSON.stringify(before),s.latest(t.id,'write').id);
+  assert.throws(()=>validate(s,t.id,'factcheck',{verdict:'pass',summary:'x',claims:[]}),/带数字的句子没核查/);
+  const fc=await factcheckFor(s,t.id);fc.claims[0].verdict='overgeneralized';assert.throws(()=>validate(s,t.id,'factcheck',fc),/不能 pass/);
+  // A revise verdict sends the draft back to writing.
+  fc.verdict='revise';const k=await callTool(s,'claim_task',{topic_id:t.id,actor:'checker'});await callTool(s,'submit_result',{topic_id:t.id,stage:'factcheck',actor:'checker',basis:k.basis,claim_id:k.claim_id,content:fc});
+  assert.equal(s.next(t.id),'write');assert.equal((await callTool(s,'get_task',{topic_id:t.id})).last_factcheck.verdict,'revise');
+  assert.throws(()=>validate(s,t.id,'review',content('review',source,comment)),/核查未通过/);
+  s.close();
+});
+test('审稿：warning 可通过，error 拦截；导出正文不带编号',async()=>{
+  const {s,t,source,comment}=setup();await advance(s,t,source,comment);
   const r=content('review',source,comment);r.issues=[{severity:'warning',platform:'toutiao',text:'小瑕疵',refs:[]}];assert.doesNotThrow(()=>validate(s,t.id,'review',r));
   r.issues[0].severity='error';assert.throws(()=>validate(s,t.id,'review',r),/硬伤/);
   assert.doesNotMatch(exportMarkdown(s,t.id).split('## 事实与来源')[0],/\[F1\]/);s.close();

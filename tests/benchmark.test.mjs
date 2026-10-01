@@ -44,13 +44,13 @@ test('对标：角度必须挂差异点；新增对标文章只让对标及之�
 test('查重：成稿与对标文章连续 20 字相同被拒；信息增量不足被拒', async () => {
   const { s, t } = await setup();
   for (const stage of ['angles']) { const task = await callTool(s, 'claim_task', { topic_id: t.id, actor: 't' }); await callTool(s, 'submit_result', { topic_id: t.id, stage, actor: 't', basis: task.basis, claim_id: task.claim_id, content: angles({ gap_ids: ['G1'], differs_from: 'x' }) }); }
-  const draft = text => ({ angle_id: 'A1', notes: [], drafts: [{ platform: 'toutiao', title: '九天二十场，新王是怎么熬出来的', title_refs: ['F1'], blocks: [{ kind: 'fact', text: '林诗栋4-0夺冠。', refs: ['F1'] }, { kind: 'analysis', text, refs: [] }], increments: [{ type: 'background', block_index: 0, note: 'b' }, { type: 'impact', block_index: 1, note: 'i' }, { type: 'concept', block_index: 1, note: 'c' }] }] });
+  const draft = text => ({ angle_id: 'A1', notes: [], drafts: [{ platform: 'toutiao', title: '九天二十场，新王是怎么熬出来的', body: ['林诗栋4-0夺冠。', '赛程很密。', text].join('\n\n'), increments: [{ type: 'background', paragraph: 0, note: 'b' }, { type: 'impact', paragraph: 1, note: 'i' }, { type: 'concept', paragraph: 2, note: 'c' }] }] });
   assert.throws(() => validate(s, t.id, 'write', draft('他在第三局错失两个局点后，仍以十三比十一拿下这一局，展现出超越年龄的大心脏！')), /连续 20 字相同/);
   assert.doesNotThrow(() => validate(s, t.id, 'write', draft('真正难的不是那一分，而是九天里一场接一场的消耗。')));
   const thin = draft('自己的判断。'); thin.drafts[0].increments = thin.drafts[0].increments.slice(0, 2);
   assert.throws(() => validate(s, t.id, 'write', thin), /信息增量不足/);
-  const wrong = draft('自己的判断。'); wrong.drafts[0].increments[0].block_index = 1;
-  assert.throws(() => validate(s, t.id, 'write', wrong), /须落在带 Fact ID 的 fact 段/);
+  const wrong = draft('自己的判断。'); wrong.drafts[0].increments[0].paragraph = 9;
+  assert.throws(() => validate(s, t.id, 'write', wrong), /不存在的段落/);
   s.close();
 });
 test('百度实时热搜：优先解析 s-data JSON，类名结构作后备', async () => {

@@ -8,7 +8,7 @@ const {Store}=await import('../src/store.mjs');
 const {callTool}=await import('../src/tools.mjs');
 const {examples,validate}=await import('../src/pipeline.mjs');
 const {fetchImage,imageCandidates}=await import('../src/adapters.mjs');
-const {addConceptSource,enrichResearch,addConceptIncrement}=await import('./depth-fixture.mjs');
+const {addConceptSource,enrichResearch,addConceptIncrement,freeDraft,factcheckFor}=await import('./depth-fixture.mjs');
 const {createApp}=await import('../src/server.mjs');
 const root=resolve('../../work/hotdesk-tests');mkdirSync(root,{recursive:true});
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZkAAAAASUVORK5CYII=','base64');
@@ -16,18 +16,19 @@ function setup(){const store=new Store(mkdtempSync(join(root,'handoff-'))),topic
 const noBenchmark=c=>Object.assign(c,{status:'none_found',items:[],gaps:[],consensus:[]});
 const withIncrements=d=>{const f=d.blocks.findIndex(b=>b.kind==='fact'&&b.refs.length);return {...d,increments:d.increments||[{type:'background',block_index:f,note:'测试背景'},{type:'impact',block_index:0,note:'测试影响'},{type:'counterintuitive',block_index:d.blocks.length-1,note:'测试判断'}]};};
 async function advance({store,topic,source,conceptSource},until='review'){
-  for(const stage of ['editor','research','opinion','benchmark','angles','write','review']){
+  for(const stage of ['editor','research','opinion','benchmark','angles','write','factcheck','review']){
     if(store.latest(topic.id,stage))continue;
     const c=structuredClone(examples[stage]);
     if(stage==='editor')c.reader_entry={new_information:'测试延时公告',target_reader:'下班后阅读的人',stake:'开放时间',evidence_source_ids:[source.id],missing_questions:[]};
     if(stage==='research'){c.facts=[{id:'F1',claim:'测试公告称阅览室十月一日延时开放',status:'confirmed',evidence:[{source_id:source.id,quote:'晚上九点'}],reason:'测试原文'}];c.causal_chains=[{from:'开放时间调整',to:'可用时段变化',mechanism:'开门时间延长',fact_ids:['F1'],uncertainty:'未测使用人数'}];c.scenarios=[{premise:'按公告执行',result:'晚间时段可用',watch_for:['后续公告'],invalidators:['计划取消'],fact_ids:['F1']}];}
     if(stage==='opinion'){c.status='insufficient';c.focus=[];c.keywords=[];}
     if(stage==='angles'){c.angles[0].opinion_ids=[];Object.assign(c.angles[0],{reader_promise:'了解新时间',core_contrast:'以前与新时段',template:'explanation',fulfillment:'正文交代公告时间'});}
-    if(stage==='write')c.drafts=['toutiao','penguin','baijiahao'].map((platform,index)=>({platform,title:['阅览室延时，下班后多了阅读时间','从下班到读书：阅览室的新时段','阅览室几点关门？公告给出新时间'][index],title_refs:['F1'],blocks:[{kind:'transition',text:['下班后的读书时间有了新变化。','公告里的一处时间调整，关系到晚间阅读。','想在晚间使用阅览室，先看最新公告。'][index],refs:[]},{kind:'fact',text:'[TEST]公告称十月一日起开放至晚上九点。',refs:['F1']}]}));
+    if(stage==='write')c.drafts=['toutiao','penguin','baijiahao'].map((platform,index)=>freeDraft(platform,['阅览室延时，下班后多了阅读时间','从下班到读书：阅览室的新时段','阅览室几点关门？公告给出新时间'][index],[['下班后的读书时间有了新变化。','公告里的一处时间调整，关系到晚间读者。','阅览室几点关门，是很多上班族的问题。'][index],'[TEST]公告称10月1日起开放至晚上9点。',['下班的人终于赶得上了。','晚上的时间多了一个去处。','答案就在这份公告里。'][index]]));
     if(stage==='research')enrichResearch(c,conceptSource);
-    if(stage==='benchmark')noBenchmark(c);if(stage==='write')c.drafts=c.drafts.map(withIncrements).map(addConceptIncrement);
-    const task=await callTool(store,'claim_task',{topic_id:topic.id,actor:'test-agent'});
-    await callTool(store,'submit_result',{topic_id:topic.id,stage,actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:c});
+    if(stage==='benchmark')noBenchmark(c);if(stage==='write')c.drafts=c.drafts.map(addConceptIncrement);
+    const actor=stage==='factcheck'?'checker':'test-agent';const body=stage==='factcheck'?await factcheckFor(store,topic.id):c;
+    const task=await callTool(store,'claim_task',{topic_id:topic.id,actor});
+    await callTool(store,'submit_result',{topic_id:topic.id,stage,actor,basis:task.basis,claim_id:task.claim_id,content:body});
     if(stage===until)break;
   }
 }
@@ -37,15 +38,14 @@ async function addImage(fixture){
   try{return await callTool(fixture.store,'collect_image',{topic_id:fixture.topic.id,source_id:fixture.source.id,url:`https://${fixture.topic.id}.example.org/photo.png`,caption:'[TEST]一像素测试图，不是新闻图片',credit:'Synthetic test fixture',usage_note:'仅用于软件测试',verified_scene:true,seen_description:'测试用一像素图片，没有真实画面内容',placement:'cover',platforms:['toutiao','penguin','baijiahao']});}
   finally{globalThis.fetch=original;}
 }
-async function reviewAgain(f){const task=await callTool(f.store,'claim_task',{topic_id:f.topic.id,actor:'test-agent'});assert.equal(task.task.stage,'review');await callTool(f.store,'submit_result',{topic_id:f.topic.id,stage:'review',actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:structuredClone(examples.review)});}
+async function reviewAgain(f){if(f.store.next(f.topic.id)==='factcheck'){const k=await callTool(f.store,'claim_task',{topic_id:f.topic.id,actor:'checker'});await callTool(f.store,'submit_result',{topic_id:f.topic.id,stage:'factcheck',actor:'checker',basis:k.basis,claim_id:k.claim_id,content:await factcheckFor(f.store,f.topic.id)});}const task=await callTool(f.store,'claim_task',{topic_id:f.topic.id,actor:'test-agent'});assert.equal(task.task.stage,'review');await callTool(f.store,'submit_result',{topic_id:f.topic.id,stage:'review',actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:structuredClone(examples.review)});}
 
 test('任务自动携带读者利益打法与三平台范例，新字段可追溯',async()=>{
   const f=setup();try{
     const task=await callTool(f.store,'get_task',{topic_id:f.topic.id,stage:'write'});
     assert.deepEqual(task.production_policy.platforms,['toutiao','penguin','baijiahao']);assert.equal(task.output_example.drafts.length,3);
     await advance(f);assert.equal(f.store.latest(f.topic.id,'editor').content.reader_entry.stake,'开放时间');assert.equal(f.store.latest(f.topic.id,'research').content.scenarios.length,1);
-    const draft=structuredClone(f.store.latest(f.topic.id,'write').content);draft.drafts[0].title_refs=[];assert.throws(()=>validate(f.store,f.topic.id,'write',draft),/标题必须/);
-    draft.drafts[0].title_refs=['F1'];draft.drafts[0].title='字'.repeat(31);assert.throws(()=>validate(f.store,f.topic.id,'write',draft),/30字符/);
+    const draft=structuredClone(f.store.latest(f.topic.id,'write').content);draft.drafts[0].title='字'.repeat(31);assert.throws(()=>validate(f.store,f.topic.id,'write',draft),/30字符/);
     const research=structuredClone(f.store.latest(f.topic.id,'research').content);research.scenarios[0].fact_ids=['F999'];assert.throws(()=>validate(f.store,f.topic.id,'research',research),/推演引用不存在/);
   }finally{f.store.close();}
 });
@@ -54,7 +54,7 @@ test('真实文件下载路径、图片更新重审、三平台纯文本及 ZIP 
   const f=setup();try{
     await advance(f);const saved=await addImage(f);assert.equal(f.store.next(f.topic.id),'review');assert.equal(f.store.latest(f.topic.id,'review'),null);
     await reviewAgain(f);const pack=await callTool(f.store,'export_publish_pack',{topic_id:f.topic.id});
-    assert.equal(pack.manifest.ready_for_handoff,true);assert.equal(pack.manifest.human_approved,false);assert.equal(pack.manifest.published,false);
+    assert.deepEqual(pack.manifest.warnings,[]);assert.equal(pack.manifest.ready_for_handoff,true);assert.equal(pack.manifest.human_approved,false);assert.equal(pack.manifest.published,false);
     const files=unzipSync(readFileSync(join(f.store.dir,'publish-packs',pack.zip_name)));
     for(const platform of ['toutiao','penguin','baijiahao']){
       assert.ok(files[`${platform}/标题.txt`]);assert.ok(files[`${platform}/正文.txt`]);assert.deepEqual(Buffer.from(files[`${platform}/images/01_cover.png`]),png);
@@ -84,7 +84,7 @@ test('来源更新使图片快照过期，重启后仍保留证据记录',async(
 test('复用相同跨平台标题或开头会明确提示补改',async()=>{
   const f=setup();try{
     await advance(f);await addImage(f);await reviewAgain(f);
-    const content=structuredClone(f.store.latest(f.topic.id,'write').content);content.drafts[1].title=content.drafts[0].title;content.drafts[1].blocks[0].text=content.drafts[0].blocks[0].text;
+    const content=structuredClone(f.store.latest(f.topic.id,'write').content);content.drafts[1].title=content.drafts[0].title;content.drafts[1].body=content.drafts[0].body;
     f.store.reset(f.topic.id,'write');const task=await callTool(f.store,'claim_task',{topic_id:f.topic.id,actor:'test-agent'});
     await callTool(f.store,'submit_result',{topic_id:f.topic.id,stage:'write',actor:'test-agent',claim_id:task.claim_id,basis:task.basis,content});await reviewAgain(f);
     const pack=await callTool(f.store,'export_publish_pack',{topic_id:f.topic.id});assert.equal(pack.manifest.ready_for_handoff,false);assert.ok(pack.manifest.warnings.some(w=>w.includes('标题相同')));assert.ok(pack.manifest.warnings.some(w=>w.includes('开头相同')));

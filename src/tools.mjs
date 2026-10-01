@@ -4,7 +4,7 @@ import { context, submit, exportMarkdown } from './pipeline.mjs';
 import {collectImage,buildPublishPack,imagesFor} from './publish-pack.mjs';
 import {verifySources} from './verify.mjs';
 import {rulesFull} from './rules.mjs';
-const stages=z.enum(['editor','research','opinion','benchmark','angles','write','review']);
+const stages=z.enum(['editor','research','opinion','benchmark','angles','write','factcheck','review']);
 const id=z.string().min(1);
 const source=z.object({platform:z.string().min(1),kind:z.enum(['article','post','comment','hotlist','benchmark']),title:z.string().default(''),body:z.string().max(100000),url:z.string().default(''),external_id:z.string().optional(),published_at:z.string().optional(),metadata:z.record(z.unknown()).optional()});
 export const toolDefinitions={

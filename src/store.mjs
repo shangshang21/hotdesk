@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 export const now = () => new Date().toISOString();
 export const uid = (prefix) => `${prefix}_${randomUUID().slice(0, 12)}`;
 export const hash = (value) => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
-export const STAGES = ['collect', 'editor', 'research', 'opinion', 'benchmark', 'angles', 'write', 'review'];
+export const STAGES = ['collect', 'editor', 'research', 'opinion', 'benchmark', 'angles', 'write', 'factcheck', 'review'];
 export const dataDir = resolve(process.env.HOTDESK_DATA || fileURLToPath(new URL('../data', import.meta.url)));
 export function canonical(url) {
   if (!url) return '';
@@ -106,7 +106,7 @@ export class Store {
   }
   latest(id, stage) { const a = this.db.prepare('SELECT * FROM artifacts WHERE topic_id=? AND stage=? AND valid=1 ORDER BY version DESC LIMIT 1').get(id,stage); return a ? { ...a, content: JSON.parse(a.content) } : null; }
   artifacts(id) { return this.db.prepare('SELECT * FROM artifacts WHERE topic_id=? ORDER BY created_at DESC,version DESC').all(id).map(a => ({...a,content:JSON.parse(a.content)})); }
-  basis(id, stage) { const t = this.topic(id); return hash({ revision: t.revision, selected_angle: stage === 'write' || stage === 'review' ? t.selected_angle : null, upstream: STAGES.slice(1, STAGES.indexOf(stage)).map(s => this.latest(id,s)?.id || null) }); }
+  basis(id, stage) { const t = this.topic(id); return hash({ revision: t.revision, selected_angle: ['write', 'factcheck', 'review'].includes(stage) ? t.selected_angle : null, upstream: STAGES.slice(1, STAGES.indexOf(stage)).map(s => this.latest(id,s)?.id || null) }); }
   next(id) { if (this.topic(id).paused) return 'paused'; if (!this.sources(id).some(s => !['hotlist','benchmark'].includes(s.kind) && normalize(s.body).length>=5)) return 'collect'; return STAGES.slice(1).find(s => !this.latest(id,s)) || 'done'; }
   detail(id) {
     const t = this.topic(id); const artifacts = this.artifacts(id); const sources = this.sources(id);
