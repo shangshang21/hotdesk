@@ -22,7 +22,10 @@ export function imagesFor(store,id){store.topic(id);return store.setting(`images
 // Stock-library search brief: the user picks licensed images inside each platform's editor.
 const TITLE_STOP_WORDS=['火了','爆火','上热搜','出圈','刷屏','引爆','登顶','冲热搜'];
 function topicKeywords(title){
-  const tokens=String(title).replace(/[“”"'‘’「」【】（）()·，。！？!?、:：\s]+/g,' ').split(' ').filter(t=>t.length>=2&&!TITLE_STOP_WORDS.includes(t));
+  const tokens=String(title).replace(/[“”"'‘’「」【】（）()·，。！？!?、:：\s]+/g,' ').split(' ')
+    .flatMap(t=>t.split(/[A-Za-z0-9‰%.]+/))
+    .filter(t=>t.length>=2&&t.length<=8&&!TITLE_STOP_WORDS.includes(t)&&!/^[万亿千]/.test(t));
+  if(!tokens.length)tokens.push(String(title).replace(/[^\p{Script=Han}]/gu,'').slice(0,8)||'话题');
   return tokens.slice(0,3);
 }
 export function imageBriefText(topic,entries){

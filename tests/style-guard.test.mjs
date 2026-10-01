@@ -151,4 +151,8 @@ test('配图需求单：每个图位给出位置、画面要求、图库搜索�
   assert.match(text, /图库搜索词：原生旅游 实景 照片/);
   assert.match(text, /文字卡只能作概念解释位，不能冒充实景/);
   assert.match(text, /图注参考：基诺山雨林徒步现场/);
+  // 数字重的标题应产出干净的搜索词（不带 676.5/万对 这类噪声）
+  const text2 = imageBriefText('结婚登记676.5万对,十年来首次大幅反弹:真回暖还是昙花一现', entries);
+  assert.match(text2, /通用主题词：结婚登记/);
+  assert.doesNotMatch(text2, /676\.5|万对 实景/);
 });
