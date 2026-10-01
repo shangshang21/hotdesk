@@ -88,7 +88,9 @@ export class Store {
       this.db.prepare(`INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(topic_id,dedup) DO UPDATE SET title=excluded.title,body=excluded.body,published_at=excluded.published_at,observed_at=excluded.observed_at,raw_hash=excluded.raw_hash,metadata=excluded.metadata`).run(sid,id,dedup,platform,kind,title,url,body,published,observed,rawHash,meta);
       this.db.prepare('INSERT INTO source_versions VALUES(?,?,?,?)').run(uid('sv'),sid,now(),JSON.stringify({...input,id:sid,raw_hash:rawHash}));
       this.db.prepare('UPDATE topics SET revision=revision+1 WHERE id=?').run(id);
-      this.invalidate(id, kind === 'benchmark' ? STAGES.indexOf('benchmark') : 1, kind === 'benchmark' ? '对标文章新增或更新' : '素材新增或更新'); this.event(id, 'source_saved', { id: sid, platform, kind, raw_hash: rawHash });
+      // Adding material re-runs research onward, not the initial triage, so gathering more is never punished.
+      const from = kind === 'benchmark' ? STAGES.indexOf('benchmark') : kind === 'hotlist' ? 1 : STAGES.indexOf('research');
+      this.invalidate(id, from, kind === 'benchmark' ? '对标文章新增或更新' : '素材新增或更新'); this.event(id, 'source_saved', { id: sid, platform, kind, raw_hash: rawHash });
     });
     return this.db.prepare('SELECT * FROM sources WHERE id=?').get(sid);
   }
