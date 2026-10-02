@@ -126,6 +126,13 @@ export function parsePage(body,url) {
   const article=readable(body),text=normalize(trimTail(article||fallbackText($)));
   return text.length>=40?[{platform:'web',kind:'article',title:title||url,body:text.slice(0,60000),url,metadata:{extractor:article?'readability':'fallback'}}]:[];
 }
+// Openverse (openverse.org) indexes openly licensed images; license_type=commercial keeps only
+// licenses that allow commercial use. Attribution (creator + license) must travel with the image.
+export async function searchStock(store,query,limit=12){
+  const u=new URL('https://api.openverse.org/v1/images/');u.searchParams.set('q',query);u.searchParams.set('license_type','commercial');u.searchParams.set('page_size',String(Math.min(limit,20)));u.searchParams.set('mature','false');
+  const raw=await fetchRaw(store,u.href);const d=json(raw);
+  return (d.results||[]).filter(r=>r.url&&/^https:/.test(r.url)).map(r=>({url:canonical(r.url),thumbnail:r.thumbnail||null,title:normalize(r.title),creator:normalize(r.creator)||'佚名',license:`CC ${String(r.license||'').toUpperCase()} ${r.license_version||''}`.trim(),license_url:r.license_url||'',landing_url:r.foreign_landing_url||'',provider:r.provider||r.source||'',width:r.width||null,height:r.height||null}));
+}
 export function parseBaiduBoard(body){
   const m=body.match(/<!--s-data:([\s\S]*?)-->/);
   try{const list=JSON.parse(m[1]).data.cards[0].content;if(Array.isArray(list)&&list.length)return list.filter(v=>v.word).map((v,i)=>({title:normalize(v.word),url:v.url||`https://www.baidu.com/s?wd=${encodeURIComponent(v.word)}`,body:normalize(v.desc),rank:i+1,platform:'baidu',metadata:{hot_score:Number(v.hotScore)||null,rank_type:'baidu_realtime_rank'}}));}catch{}

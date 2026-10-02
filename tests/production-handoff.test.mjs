@@ -35,7 +35,7 @@ async function advance({store,topic,source,conceptSource},until='review'){
 async function addImage(fixture){
   const original=globalThis.fetch;
   globalThis.fetch=async()=>new Response(png,{headers:{'content-type':'image/png'}});
-  try{return await callTool(fixture.store,'collect_image',{topic_id:fixture.topic.id,source_id:fixture.source.id,url:`https://${fixture.topic.id}.example.org/photo.png`,caption:'[TEST]一像素测试图，不是新闻图片',credit:'Synthetic test fixture',usage_note:'仅用于软件测试',verified_scene:true,seen_description:'测试用一像素图片，没有真实画面内容',placement:'cover',platforms:['toutiao','penguin','baijiahao']});}
+  try{const saved=await callTool(fixture.store,'collect_image',{topic_id:fixture.topic.id,source_id:fixture.source.id,url:`https://${fixture.topic.id}.example.org/photo.png`,caption:'[TEST]一像素测试图，不是新闻图片',credit:'Synthetic test fixture',usage_note:'仅用于软件测试',verified_scene:true,actor:'test-agent',seen_description:'测试用一像素图片，没有真实画面内容',placement:'cover',platforms:['toutiao','penguin','baijiahao']});if(!saved.duplicate)await callTool(fixture.store,'review_image',{topic_id:fixture.topic.id,image_id:saved.image.id,actor:'image-checker',content_type:'photo',description:'测试用一像素图片（按照片处理）',matches:true,reason:'测试'});return saved;}
   finally{globalThis.fetch=original;}
 }
 async function reviewAgain(f){if(f.store.next(f.topic.id)==='factcheck'){const k=await callTool(f.store,'claim_task',{topic_id:f.topic.id,actor:'checker'});await callTool(f.store,'submit_result',{topic_id:f.topic.id,stage:'factcheck',actor:'checker',basis:k.basis,claim_id:k.claim_id,content:await factcheckFor(f.store,f.topic.id)});}const task=await callTool(f.store,'claim_task',{topic_id:f.topic.id,actor:'test-agent'});assert.equal(task.task.stage,'review');await callTool(f.store,'submit_result',{topic_id:f.topic.id,stage:'review',actor:'test-agent',basis:task.basis,claim_id:task.claim_id,content:structuredClone(examples.review)});}
@@ -97,7 +97,7 @@ test('图片类型、内网地址与外话题来源在下载入口受到检查',
     globalThis.fetch=async()=>{calls++;return new Response('<html>Not an image</html>',{headers:{'content-type':'image/png'}});};
     await assert.rejects(fetchImage('http://127.0.0.1/image.png'),/不允许访问内网/);assert.equal(calls,0);
     await assert.rejects(fetchImage(`https://${f.topic.id}.example.org/bad.png`),/有效 PNG/);
-    await assert.rejects(callTool(f.store,'collect_image',{topic_id:f.topic.id,source_id:'s_foreign',url:'https://example.org/photo.png',caption:'测试',credit:'测试',usage_note:'测试',verified_scene:true,seen_description:'测试用一像素图片，没有真实画面内容',placement:'detail',platforms:['toutiao']}),/本话题/);
+    await assert.rejects(callTool(f.store,'collect_image',{topic_id:f.topic.id,source_id:'s_foreign',url:'https://example.org/photo.png',caption:'测试',credit:'测试',usage_note:'测试',verified_scene:true,actor:'test-agent',seen_description:'测试用一像素图片，没有真实画面内容',placement:'detail',platforms:['toutiao']}),/本话题/);
     const candidates=imageCandidates('<meta property="og:image" content="/photo.jpg"><img src="/photo.jpg"><img src="/logo.png"><img src="javascript:bad()">','https://example.org/story');assert.deepEqual(candidates,['https://example.org/photo.jpg']);
   }finally{globalThis.fetch=original;f.store.close();}
 });
@@ -115,11 +115,29 @@ test('Web 交付 ZIP 和图片真实返回二进制，导出工具仍受会话�
 });
 test('配图只能取自来源正文：图片搜索结果、侧栏/推荐区图片被拒，正文图带页面图注入库',async()=>{
   const f=setup(),original=globalThis.fetch;globalThis.fetch=async()=>new Response(png,{headers:{'content-type':'image/png'}});
-  const base={topic_id:f.topic.id,source_id:f.source.id,caption:'测试',credit:'测试',usage_note:'测试',verified_scene:true,seen_description:'测试用一像素图片，没有真实画面内容',placement:'detail',platforms:['toutiao']};
+  const base={topic_id:f.topic.id,source_id:f.source.id,caption:'测试',credit:'测试',usage_note:'测试',verified_scene:true,actor:'test-agent',seen_description:'测试用一像素图片，没有真实画面内容',placement:'detail',platforms:['toutiao']};
   try{
     await assert.rejects(callTool(f.store,'collect_image',{...base,url:'https://img1.baidu.com/it/u=4208995601,2188993885'}),/不在来源原文页面里/);
     await assert.rejects(callTool(f.store,'collect_image',{...base,url:'https://other.example.org/unrelated.png'}),/侧栏或推荐区/);
     const ok=await callTool(f.store,'collect_image',{...base,url:`https://${f.topic.id}.example.org/photo.png`});
     assert.equal(ok.image.in_article,true);assert.equal(ok.image.page_caption,'阅览室内景');assert.equal(ok.image.page_alt,'阅览室');
+  }finally{globalThis.fetch=original;f.store.close();}
+});
+test('审图：文字卡片/词语解释不算照片；不能自己审自己的图；配图库只收 search_stock_images 搜到的图',async()=>{
+  const f=setup(),original=globalThis.fetch;globalThis.fetch=async()=>new Response(png,{headers:{'content-type':'image/png'}});
+  const base={topic_id:f.topic.id,actor:'test-agent',caption:'测试',usage_note:'测试',verified_scene:true,seen_description:'测试用一像素图片，没有真实画面内容',placement:'cover',platforms:['toutiao']};
+  try{
+    await advance(f);
+    const news=await callTool(f.store,'collect_image',{...base,source_id:f.source.id,credit:'测试',url:`https://${f.topic.id}.example.org/photo.png`});
+    await assert.rejects(callTool(f.store,'review_image',{topic_id:f.topic.id,image_id:news.image.id,actor:'test-agent',content_type:'photo',description:'自己看自己找的图，不算数的',matches:true,reason:'x'}),/另一个 Agent/);
+    const card=await callTool(f.store,'review_image',{topic_id:f.topic.id,image_id:news.image.id,actor:'image-checker',content_type:'text_card',description:'黄底大字“原生旅游”词语解释卡片，右下角卡通猪',matches:true,reason:'意思沾边但不是照片'});
+    assert.equal(card.approved,false);assert.match(card.why,/不是照片/);
+    await reviewAgain(f);let pack=await callTool(f.store,'export_publish_pack',{topic_id:f.topic.id,platforms:['toutiao']});assert.equal(pack.manifest.platforms[0].images.length,0);
+    await assert.rejects(callTool(f.store,'collect_image',{...base,kind:'stock',url:'https://img1.baidu.com/it/u=1,2'}),/search_stock_images/);
+    f.store.setSetting(`stock:${f.topic.id}`,{[`https://${f.topic.id}.example.org/hike.png`]:{url:`https://${f.topic.id}.example.org/hike.png`,creator:'Someone',license:'CC BY 2.0',license_url:'https://creativecommons.org/licenses/by/2.0/',landing_url:'https://www.flickr.com/photos/x/1',provider:'flickr',title:'hiking'}});
+    const stock=await callTool(f.store,'collect_image',{...base,kind:'stock',url:`https://${f.topic.id}.example.org/hike.png`});
+    assert.equal(stock.image.kind,'stock');assert.match(stock.image.credit,/Someone \/ CC BY 2\.0/);
+    await callTool(f.store,'review_image',{topic_id:f.topic.id,image_id:stock.image.id,actor:'image-checker',content_type:'photo',description:'两个人在山脊上徒步，远处是连绵的山',matches:true,reason:'对应徒步段落'});
+    await reviewAgain(f);pack=await callTool(f.store,'export_publish_pack',{topic_id:f.topic.id,platforms:['toutiao']});assert.equal(pack.manifest.platforms[0].images.length,1);assert.equal(pack.manifest.platforms[0].images[0].kind,'stock');
   }finally{globalThis.fetch=original;f.store.close();}
 });

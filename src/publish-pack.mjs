@@ -3,7 +3,7 @@ import {join,dirname} from 'node:path';
 import {createHash} from 'node:crypto';
 import {zipSync,strToU8} from 'fflate';
 import {canonical,hash,now,STAGES,TRUSTED_ORIGINS,verificationOf} from './store.mjs';
-import {fetchImage,articleImages} from './adapters.mjs';
+import {fetchImage,articleImages,searchStock} from './adapters.mjs';
 import {exportMarkdown,validate} from './pipeline.mjs';
 import {productionPolicy} from './production-policy.mjs';
 
@@ -24,7 +24,13 @@ export function imageFile(store,image){
   if(!/^[a-f0-9]{64}\.(png|jpg|webp)$/.test(image.filename))throw new Error('无效图片文件记录');
   return join(store.dir,'images',image.filename);
 }
+export async function findStockImages(store,id,query,limit){
+  store.topic(id);const found=await searchStock(store,query,limit);
+  const known=store.setting(`stock:${id}`,{});for(const r of found)known[r.url]={...r,query};store.setSetting(`stock:${id}`,known);
+  return {query,count:found.length,images:found,tip:'先打开 thumbnail 看图：是不是照片、画面里有什么、和段落对不对得上，再用 collect_image（kind=stock）入库'};
+}
 export async function collectImage(store,id,input){
+  if(input.kind==='stock')return collectStock(store,id,input);
   const source=store.sources(id).find(s=>s.id===input.source_id);
   if(!source||!['article','post'].includes(source.kind)||!source.url)throw new Error('图片须关联本话题有原文链接的 article/post 来源');
   if(!input.verified_scene)throw new Error('请先查看图片并核对场景，不能仅凭文件名确认');
@@ -38,18 +44,44 @@ export async function collectImage(store,id,input){
   const r=await fetchImage(input.url);
   if(store.sources(id).find(s=>s.id===source.id)?.raw_hash!==source.raw_hash)throw new Error('下载期间来源已更新，请重新核对图片');
   const digest=createHash('sha256').update(r.bytes).digest('hex');
-  const metadata={...input,page_alt:found.alt,page_caption:found.caption,in_article:found.in_article,url:canonical(input.url),resolved_url:r.url,source_raw_hash:source.raw_hash,source_url:source.url,sha256:digest,filename:`${digest}.${r.extension}`};
+  const metadata={...input,kind:'news',review:null,page_alt:found.alt,page_caption:found.caption,in_article:found.in_article,url:canonical(input.url),resolved_url:r.url,source_raw_hash:source.raw_hash,source_url:source.url,sha256:digest,filename:`${digest}.${r.extension}`};
+  return saveImage(store,id,metadata,r.bytes,{source_id:source.id});
+}
+// Mood pictures (hiking, food, street scenes) come from the openly licensed library, never image search.
+async function collectStock(store,id,input){
+  const meta=store.setting(`stock:${id}`,{})[canonical(input.url)];
+  if(!meta)throw new Error('配图库图片须先用 search_stock_images 搜到再入库；不接受图片搜索引擎、视觉中国等来源的图');
+  if(!input.verified_scene)throw new Error('请先查看图片并核对场景，不能仅凭文件名确认');
+  const r=await fetchImage(meta.url);const digest=createHash('sha256').update(r.bytes).digest('hex');
+  const metadata={...input,kind:'stock',review:null,source_id:null,url:meta.url,resolved_url:r.url,credit:`${meta.creator} / ${meta.license} / ${meta.provider} via Openverse`,license:meta.license,license_url:meta.license_url,source_url:meta.landing_url,page_alt:meta.title,page_caption:'',in_article:false,source_raw_hash:null,sha256:digest,filename:`${digest}.${r.extension}`};
+  return saveImage(store,id,metadata,r.bytes,{source_id:null});
+}
+function saveImage(store,id,metadata,bytes,{source_id}){
   const image={...metadata,id:`img_${hash(metadata).slice(0,16)}`,saved_at:now()};
   const images=imagesFor(store,id);if(images.some(i=>i.id===image.id))return {image:images.find(i=>i.id===image.id),duplicate:true};
   if(images.length>=36)throw new Error('本话题已达到36张图片快照限额');
   mkdirSync(join(store.dir,'images'),{recursive:true});
-  const file=imageFile(store,image);if(!existsSync(file))writeFileSync(file,r.bytes);
+  const file=imageFile(store,image);if(!existsSync(file))writeFileSync(file,bytes);
   store.transaction(()=>{
     store.setSetting(`images:${id}`,[...images,image]);
     store.invalidate(id,STAGES.indexOf('review'),'图片新增，需核对图文并重新审稿');
-    store.event(id,'image_saved',{id:image.id,sha256:digest,source_id:source.id,url:image.url});
+    store.event(id,'image_saved',{id:image.id,sha256:image.sha256,source_id,url:image.url,kind:image.kind});
   });
-  return {image,duplicate:false,next:store.next(id)};
+  return {image,duplicate:false,next:store.next(id),review:'待审：须由另一个 Agent 调用 review_image 看图审核后才能进交付包'};
+}
+// Independent look at the picture: is it a photo at all, and does it fit the paragraph?
+const PHOTO_TYPES={news:['photo','screenshot'],stock:['photo']};
+export function reviewImage(store,id,input){
+  const images=imagesFor(store,id),image=images.find(i=>i.id===input.image_id);if(!image)throw new Error('图片不存在');
+  if(image.actor&&image.actor===input.actor)throw new Error('审图须由另一个 Agent 完成，不能自己审自己找的图（actor 相同）');
+  const approved=PHOTO_TYPES[image.kind||'news'].includes(input.content_type)&&input.matches;
+  const review={actor:input.actor,content_type:input.content_type,description:input.description,matches:input.matches,reason:input.reason,approved,at:now()};
+  store.transaction(()=>{
+    store.setSetting(`images:${id}`,images.map(i=>i.id===image.id?{...i,review}:i));
+    store.invalidate(id,STAGES.indexOf('review'),'图片审核结果更新，需重新审稿');
+    store.event(id,'image_reviewed',{id:image.id,approved,content_type:input.content_type});
+  });
+  return {image_id:image.id,approved,why:approved?'通过':input.content_type!=='photo'&&!(image.kind==='news'&&input.content_type==='screenshot')?`这不是照片（${input.content_type}），不能当配图`:'画面和段落对不上'};
 }
 
 export function buildPublishPack(store,id,platforms=productionPolicy.platforms){
@@ -68,7 +100,8 @@ export function buildPublishPack(store,id,platforms=productionPolicy.platforms){
     // New selections take precedence; preserve earlier records for audit.
     for(const image of [...allImages].reverse()){
       if(!image.platforms.includes(platform)||seen.has(image.sha256))continue;
-      if(sources.get(image.source_id)?.raw_hash!==image.source_raw_hash)continue;
+      if(image.kind!=='stock'&&sources.get(image.source_id)?.raw_hash!==image.source_raw_hash)continue;
+      if(!image.review?.approved){if(!image.review)warnings.push(`图片待审：${image.id}（须另一个 Agent 用 review_image 看图）`);continue;}
       const file=imageFile(store,image);
       if(!existsSync(file)){warnings.push(`图片文件缺失：${image.id}`);continue;}
       const bytes=readFileSync(file);

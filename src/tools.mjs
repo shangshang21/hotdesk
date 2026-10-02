@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { Adapters } from './adapters.mjs';
 import { context, submit, exportMarkdown } from './pipeline.mjs';
-import {collectImage,buildPublishPack,imagesFor} from './publish-pack.mjs';
+import {collectImage,buildPublishPack,imagesFor,findStockImages,reviewImage} from './publish-pack.mjs';
 import {verifySources} from './verify.mjs';
 import {rulesFull} from './rules.mjs';
 const stages=z.enum(['editor','research','opinion','benchmark','angles','write','factcheck','review']);
@@ -24,7 +24,9 @@ export const toolDefinitions={
   select_angle:{description:'选定已有切入角度并将写作/审稿标为待重做。',schema:{topic_id:id,angle_id:id}},
   merge_topics:{description:'确认两个条目是同一事件后合并到目标；保留原话题档案，目标重新分析。不能仅凭相似关键词合并。',schema:{from:id,to:id}},
   export_draft:{description:'导出带引用的 Markdown 审核稿。未人工确认会带待审核标记；没有发布能力。',schema:{topic_id:id}},
-  collect_image:{description:'从来源原文里取配图：图片必须出现在该来源页面的正文里（collect_url 返回的 image_candidates 中 in_article=true 的图；og:image 仅可作封面），不能用图片搜索结果。先真的看图，把画面里实际有什么写进 seen_description，再下载。图片更新会使审稿失效。',schema:{topic_id:id,source_id:id,url:z.string().url(),seen_description:z.string().min(10).max(500),caption:z.string().min(1).max(500),credit:z.string().min(1).max(200),usage_note:z.string().min(1).max(1000),verified_scene:z.literal(true),placement:z.enum(['cover','detail','result']),platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3)}},
+  search_stock_images:{description:'在开放授权图库（Openverse，只返回允许商用的图）搜氛围配图：旅游、美食、街景、人物活动等没有新闻原图可用的题材。用英文关键词效果更好（如 hiking mountain china）。返回缩略图，先看图再入库。不要用谷歌/百度图片、视觉中国等来源，有版权风险。',schema:{topic_id:id,query:z.string().min(2).max(120),limit:z.number().int().min(1).max(20).default(12)}},
+  collect_image:{description:'图片入库，两种来源：kind=news 取来源原文正文里的图（collect_url 返回的 image_candidates 中 in_article=true；og:image 只能作封面）；kind=stock 取 search_stock_images 搜到的开放授权图。先真的看图，把画面里实际有什么写进 seen_description。入库后状态是待审，须由另一个 Agent 用 review_image 审过才进交付包。图片更新会使审稿失效。',schema:{topic_id:id,actor:z.string().min(1).max(150),kind:z.enum(['news','stock']).default('news'),source_id:id.optional(),url:z.string().url(),seen_description:z.string().min(10).max(500),caption:z.string().min(1).max(500),credit:z.string().min(1).max(200).optional(),usage_note:z.string().min(1).max(1000),verified_scene:z.literal(true),placement:z.enum(['cover','detail','result']),platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3)}},
+  review_image:{description:'独立审图（不能审自己入库的图）：打开图片看清楚再判。content_type 先判断这是不是照片：photo 照片 / screenshot 视频或直播截图 / illustration 插画 / text_card 文字卡片、词语解释、海报 / chart 图表 / other。只有照片能当配图（新闻图可接受视频截图）；再判断画面和要配的段落是否对得上。',schema:{topic_id:id,image_id:id,actor:z.string().min(1).max(150),content_type:z.enum(['photo','screenshot','illustration','text_card','chart','other']),description:z.string().min(10).max(500),matches:z.boolean(),reason:z.string().min(1).max(500)}},
   list_images:{description:'查看本话题真实图片文件及来源记录。',schema:{topic_id:id}},
   export_publish_pack:{description:'导出三平台标题/纯正文/配图/插图说明的文件夹和ZIP；缺图、缺稿或审稿未过会标待补全。ready_for_handoff不等于人工确认或已发布。',schema:{topic_id:id,platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3).refine(a=>new Set(a).size===a.length,'平台不能重复').optional()}},
 };
@@ -52,7 +54,9 @@ export async function callTool(store,name,args={},ctx={}){
     case 'select_angle':store.selectAngle(a.topic_id,a.angle_id);return {selected:a.angle_id};
     case 'merge_topics':return store.merge(a.from,a.to);
     case 'export_draft':return {markdown:exportMarkdown(store,a.topic_id)};
-    case 'collect_image':return tracked(store,name,a.topic_id,a,()=>collectImage(store,a.topic_id,a));
+    case 'search_stock_images':return tracked(store,name,a.topic_id,a,()=>findStockImages(store,a.topic_id,a.query,a.limit));
+    case 'collect_image':if(a.kind!=='stock'&&(!a.source_id||!a.credit))throw new Error('新闻原图须提供 source_id 和 credit');return tracked(store,name,a.topic_id,a,()=>collectImage(store,a.topic_id,a));
+    case 'review_image':return reviewImage(store,a.topic_id,a);
     case 'list_images':return {images:imagesFor(store,a.topic_id)};
     case 'export_publish_pack':return buildPublishPack(store,a.topic_id,a.platforms);
   }
