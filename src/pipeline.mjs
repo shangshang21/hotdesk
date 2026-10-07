@@ -165,25 +165,33 @@ export function styleAudit(store,id,draft){
   for(const word of productionPolicy.style.banned_words)if(full.includes(word))issues.push({kind:'word',text:`用了“${word}”：热度靠细节和反差，不靠形容词`});
   return issues;
 }
-// Longest-common-substring length over squashed text.
-function lcsLen(a,b){
-  if(!a||!b)return 0;
-  const dp=new Uint32Array(b.length+1);let best=0;
-  for(let i=1;i<=a.length;i++){let prev=0;
-    for(let j=1;j<=b.length;j++){const cur=dp[j];dp[j]=a[i-1]===b[j-1]?prev+1:0;if(dp[j]>best)best=dp[j];prev=cur;}
-  }
-  return best;
-}
 // How much of the cited facts' evidence appears verbatim in the draft (runs ≥ COPY_RUN chars
-// count; shorter overlaps are ordinary data/phrase reuse). Guards quote-stuffing.
+// count; shorter overlaps are ordinary data/phrase reuse). Count the union of draft positions:
+// corroborating sources cannot multiply a quote, and disjoint/repeated runs cannot hide it.
 export function quoteRatio(store,id,draft,factsMap){
   const facts=factsMap||new Map((store.latest(id,'research')?.content.facts||[]).map(f=>[f.id,f]));
-  const draftText=squash(`${draft.title}${draft.blocks.map(b=>b.text).join('')}`);
-  if(!draftText.length)return 0;
+  // Keep title/paragraph boundaries: concatenating pieces can invent a qualifying long run.
+  const pieces=[draft.title,...draft.blocks.map(b=>b.text)].map(squash);
+  const total=pieces.reduce((sum,piece)=>sum+piece.length,0);
+  if(!total)return 0;
+  const wanted=new Set();
+  for(const piece of pieces)for(let i=0;i+COPY_RUN<=piece.length;i++)wanted.add(piece.slice(i,i+COPY_RUN));
+  if(!wanted.size)return 0;
   const cited=new Set([...draft.title_refs,...draft.blocks.flatMap(b=>b.refs)]);
+  const matched=new Set();
+  // Index only windows occurring in the draft; memory stays bounded by draft size.
+  for(const ref of cited)for(const e of facts.get(ref)?.evidence||[]){
+    const quote=squash(e.quote);
+    for(let i=0;i+COPY_RUN<=quote.length;i++){const window=quote.slice(i,i+COPY_RUN);if(wanted.has(window))matched.add(window);}
+  }
   let quoted=0;
-  for(const ref of cited)for(const e of facts.get(ref)?.evidence||[]){const run=lcsLen(squash(e.quote),draftText);if(run>=COPY_RUN)quoted+=run;}
-  return quoted/draftText.length;
+  for(const piece of pieces){
+    const coverage=new Int32Array(piece.length+1);
+    for(let i=0;i+COPY_RUN<=piece.length;i++)if(matched.has(piece.slice(i,i+COPY_RUN))){coverage[i]++;coverage[i+COPY_RUN]--;}
+    let active=0;
+    for(let i=0;i<piece.length;i++){active+=coverage[i];if(active>0)quoted++;}
+  }
+  return quoted/total;
 }
 export function imagesToReview(store,id){
   const sources=new Map(store.sources(id).map(s=>[s.id,s]));

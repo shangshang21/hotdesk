@@ -31,8 +31,7 @@ const stageContents = (a, b) => ({
   benchmark: { status: 'none_found', searched: ['原生旅游 解读', '原生旅游 媒体'], items: [], consensus: [], gaps: [] },
   angles: { angles: [{ id: 'A1', name: '体验派', hook: 'h', audience_value: 'v', fact_ids: ['F1', 'F2'], opinion_ids: [], titles: ['t'], gaps: [] }], recommendation: 'r' },
 });
-async function advance(s, t, a, b) {
-  const contents = stageContents(a, b);
+async function advance(s, t, a, b, contents = stageContents(a, b)) {
   for (const stage of ['editor', 'research', 'opinion', 'benchmark', 'angles']) { const task = await callTool(s, 'claim_task', { topic_id: t.id, actor: 't' }); await callTool(s, 'submit_result', { topic_id: t.id, stage, actor: 't', basis: task.basis, claim_id: task.claim_id, content: contents[stage] }); }
 }
 function draft(texts = {}) {
@@ -136,6 +135,30 @@ test('引用占比：长段照搬原文拒收，改写为自己的话通过', as
   const ratio = quoteRatio(s, t.id, rewritten.drafts[0]);
   assert.ok(ratio <= 0.2, `改写稿引用占比应低于上限，实际 ${ratio}`);
   s.close();
+});
+
+test('写稿入口：同一句数据有两份来源时不误拦，拆开搬用一段原话仍拦截', async () => {
+  const { s, t, a, b } = setup();
+  try {
+    const duplicate = s.addSource(t.id, { kind: 'article', platform: 'web', title: '[TEST] 数据转载', url: 'https://third.example.com/data', body: a.body });
+    const contents = stageContents(a, b);
+    contents.research.facts[0].evidence[0].quote = '平台国庆数据显示，徒步和登山体验的预订用户规模增加近80%';
+    contents.research.facts[0].evidence.push({ source_id: duplicate.id, quote: contents.research.facts[0].evidence[0].quote });
+    await advance(s, t, a, b, contents);
+    const original = draft({ analysis: `有人带路，风景才从照片变成自己的经历。${'析'.repeat(40)}` });
+    assert.ok(quoteRatio(s, t.id, original.drafts[0]) <= 0.2);
+    assert.doesNotThrow(() => validate(s, t.id, 'write', original));
+
+    const quote = contents.research.facts[2].evidence[0].quote;
+    const split = draft({ analysis: `${quote.slice(0, 24)}。解释。${quote.slice(24)}。${'析'.repeat(80)}` });
+    split.drafts[0].blocks[3].refs = ['F3'];
+    const research = structuredClone(s.latest(t.id, 'research'));
+    research.content.facts[0].evidence.pop();
+    const view = Object.create(s);
+    view.latest = (id, stage) => stage === 'research' ? research : s.latest(id, stage);
+    assert.ok(quoteRatio(view, t.id, split.drafts[0]) > 0.2);
+    assert.throws(() => validate(view, t.id, 'write', split), /引用原文/);
+  } finally { s.close(); }
 });
 
 test('配图需求单：每个图位给出位置、画面要求、图库搜索词与避雷', () => {
