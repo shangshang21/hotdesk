@@ -49,6 +49,32 @@ When the user supplies real platform analytics, associate platform, angle, title
 - Choose 1–5 angles with 5–10 attention-grabbing titles each (question, take-a-side, twist, "netizens found…", number/detail). Titles may be dramatic in tone but must not invent events. Respect a user-selected angle.
 - Default to the three platform profiles above. Fact and opinion blocks need refs; analysis/transition blocks may omit refs but must not add new facts. Keep audit notes separate from publishable text.
 - `review` checks hard errors only: names, numbers, dates, quotes vs sources; netizen claims stated as fact; invented events; personal/regional/gender attacks or high-risk sensitive content. Hard errors are `error` → `revise`/`blocked`; minor issues are `warning` and may still pass. Use `info` to suggest punchier titles and openings.
+
+## 💬 Gemini 对话式纯血 Skill 模式（免 Web、免 MCP、当前话题即开即用）
+
+当用户在当前聊天窗口直接提出写自媒体文章需求（如“写篇今日头条文章”、“复盘这个热点”、“产出三平台稿件”）时，**完全不需要启动 Web 看板或外部 MCP 客户端**，直接激活本 Skill 作为纯智能体工作流：
+
+1. **自动调度子智能体小队 (Tri-Agent Pro)**：
+   - 派生 **Material Scout (素材与事实侦查员)**：通过宿主机静默网络/搜索获取真实一手新闻、大盘数据、公开报道（坚决杜绝 AI 凭空捏造数据）；
+   - 派生 **Scholar Pro (Gemini 3.1 Pro 深度学者，Model="pro")**：深挖底层商业/博弈运行规律、客观经济账，将逻辑深度拉满；
+   - 派生 **Viral Master (Gemini 3.1 Pro 爆款大师，Model="pro")**：捕捉人性欲望、避坑恐惧、开篇反常识冲突与痛点利益算账；
+2. **心理学终极熔铸 (Master Agent)**：
+   - 彻底剔除学者说教与冰冷学术名词，严格执行 **今日头条 Rule 25 平民化烟火气实战铁律**：
+     - **标题严格 ≤ 30 字符，严禁使用感叹号**；
+     - **前三句内必须见具体反差或冲突**；
+     - **文风是“老江湖在路边摊吃串唠嗑”**：用生动的生活化比喻拉近距离；
+     - **算清柴米油盐经济账**；
+     - **单篇字数严格锁定在 800~1100 字黄金区间**；
+     - **绝对禁绝 Markdown `**` 符号**（改用双引号“”或破折号——，避免平台富文本编辑器解析失真）；
+     - **纯文本编号**（使用 `1、`、`2、`、`• `，杜绝不可复制的列表缩进）；
+3. **平台分层定位**：
+   - 今日头条：独享最高深度、平民烟火气与现实算账；
+   - 腾讯企鹅号 / 百度百家号：极端反差争议引战，直接引爆评论区；
+4. **极速配图需求单**：
+   - 不再下载图片，文末输出官方正版图库关键词与画面描述，创作者在平台后台 2 秒一键检索插入；
+5. **秒级交付**：
+   - 直接在对话中交付完整可全选复制的正文与标题矩阵，同时自动备份写入本地 `data/`。
+
 ## Video Studio (短视频二创工坊 MCP 工作流)
 
 Hotdesk 提供全套针对海外科技/游戏/演讲短视频的汉化二创自动化生产线与 MCP 工具：
