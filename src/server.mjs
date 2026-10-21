@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, createReadStream } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import {join} from 'node:path';
@@ -14,14 +14,46 @@ export function createApp(store=new Store()){
   const server=createServer(async(req,res)=>{
     const host=req.headers.host||'';if(!/^(127\.0\.0\.1|localhost):\d+$/.test(host)){res.writeHead(403);return res.end('Local access only');}
     const origin=`http://${host}`,url=new URL(req.url,origin);
-    res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; media-src 'self' data: blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     const send=(status,data,type='application/json; charset=utf-8')=>{res.writeHead(status,{'Content-Type':type});res.end(typeof data==='string'?data:JSON.stringify(data));};
     try{
       if(req.headers.origin&&req.headers.origin!==origin)return send(403,{error:'不允许跨站请求'});
       if(req.method==='GET'){
-        if(url.pathname==='/api/health')return send(200,{app:'hotdesk-local',version:'0.3.0',data_dir:store.dir});
+        if(url.pathname==='/api/health')return send(200,{app:'hotdesk-local',version:'0.4.0',data_dir:store.dir});
         if(url.pathname==='/api/session')return send(200,{token});
-        if(url.pathname==='/api/state')return send(200,{topics:store.list(),jobs:store.jobs(),model_configured:modelConfigured(),config:{feeds:store.setting('feeds',[]),trendradar_path:store.setting('trendradar_path',''),newsnow_base:store.setting('newsnow_base','http://127.0.0.1:4444/api/s')},claims:store.db.prepare("SELECT topic_id,stage,actor,expires_at FROM claims WHERE status='active' AND expires_at>?").all(now())});
+        if(url.pathname==='/api/state')return send(200,{topics:store.list(),video_projects:store.listVideoProjects(),jobs:store.jobs(),model_configured:modelConfigured(),config:{feeds:store.setting('feeds',[]),trendradar_path:store.setting('trendradar_path',''),newsnow_base:store.setting('newsnow_base','http://127.0.0.1:4444/api/s')},claims:store.db.prepare("SELECT topic_id,stage,actor,expires_at FROM claims WHERE status='active' AND expires_at>?").all(now())});
+        if(url.pathname==='/api/video_projects')return send(200,{projects:store.listVideoProjects()});
+        if(url.pathname.startsWith('/api/video_project/'))return send(200,store.getVideoProject(url.pathname.split('/').at(-1)));
+        if(url.pathname.startsWith('/api/video_asset/')){
+          const [, , , projectId, filename] = url.pathname.split('/');
+          const safeName = (filename || '').replace(/[^a-zA-Z0-9_.-]/g, '');
+          let filePath = join(store.dir, 'videos', projectId, safeName);
+          if(!existsSync(filePath)) {
+            const fallbackDemucs = join(store.dir, 'videos', projectId, 'demucs', 'htdemucs', 'raw_audio', safeName);
+            if(existsSync(fallbackDemucs)) filePath = fallbackDemucs;
+          }
+          if(!existsSync(filePath)) return send(404, { error: '文件不存在' });
+          const ext = safeName.split('.').at(-1);
+          const mimeTypes = { mp4: 'video/mp4', wav: 'audio/wav', mp3: 'audio/mpeg', ass: 'text/plain; charset=utf-8', srt: 'text/plain; charset=utf-8', json: 'application/json; charset=utf-8' };
+          const contentType = mimeTypes[ext] || 'application/octet-stream';
+          const stat = statSync(filePath);
+          const range = req.headers.range;
+          if (range) {
+            const parts = range.replace(/bytes=/, "").split("-");
+            const start = parseInt(parts[0], 10);
+            const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+            res.writeHead(206, {
+              'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+              'Accept-Ranges': 'bytes',
+              'Content-Length': (end - start) + 1,
+              'Content-Type': contentType,
+            });
+            return createReadStream(filePath, { start, end }).pipe(res);
+          } else {
+            res.writeHead(200, { 'Content-Length': stat.size, 'Content-Type': contentType, 'Accept-Ranges': 'bytes' });
+            return createReadStream(filePath).pipe(res);
+          }
+        }
         if(url.pathname.startsWith('/api/topic/'))return send(200,store.detail(url.pathname.split('/').at(-1)));
         if(url.pathname.startsWith('/api/raw/'))return send(200,store.readRaw(url.pathname.split('/').at(-1)),'text/plain; charset=utf-8');
         if(url.pathname.startsWith('/api/packs/')){

@@ -1,4 +1,36 @@
-# 热点工坊 Hotdesk 0.3
+# 热点工坊 Hotdesk 0.4 · 双轨自媒体创作中枢 (Creative Suite)
+
+## 🚀 v0.4.0 重大更新（2026-10-18）：双轨自媒体门户 + 短视频二创工坊 + 原生 MCP 全链路
+
+本次迭代将 Hotdesk 从原先单一的“纸质图文生产线”，升级为**“纸质图文 ➕ 短视频汉化二创”双轨并行的自媒体创作中枢**，并完全打通原生 MCP 协议，实现 AI Agent 与 Web 可视化看板毫秒级协同。
+
+### 🌟 核心升级点：
+
+1. **双轨门户大厅（二选其一 · 映入眼帘）**：
+   - 首次进入页面或点击左上角 Logo 时，呈现沉浸式双轨创作大厅，供创作者二选其一：
+     - **📝 纸质/图文文章创作 (Article Studio)**：覆盖百度/B站/贴吧/微博/抖音/知乎实时热搜，爆款对标拆解、事实交叉查证、争议剖析、今日头条/企鹅号/百家号三平台差异化正文与配图交付包。
+     - **🎬 短视频二创工坊 (Video Studio)**：专攻海外科技/演讲/游戏视频汉化二创。彻底消灭老外原声、提纯现场环境音伴奏、中文短视频网感重构、-14.8 LUFS 工业级母带压限混音、剪映 Pro 4 独立轨道工程草稿直出。
+   - 顶部导航栏常驻双模式切换开关，随时无缝平滑跳转。
+
+2. **短视频汉化二创 7 步工业流水线（每一步精细化打通）**：
+   - **Step 1 原片入库 (`ingest`)**：输入本地 MP4 文件路径或视频链接，ffprobe 毫秒级探测分辨率、帧率、时长与音视频流，内置 HTML5 原片播放器。
+   - **Step 2 Demucs v4 人声彻底剥离 (`separate`)**：采用 Facebook Demucs v4 Hybrid Transformer 双轨剥离，将老外英文原声 (`vocals.wav`) 与现场环境音/音效/伴奏 (`no_vocals.wav`) 彻底物理分离，杜绝声音混成一团。提纯伴奏与人声支持独立在线试听。
+   - **Step 3 Whisper 毫秒级时间戳 (`transcribe`)**：基于 Faster-Whisper 逐句提取原始英语对白与起止绝对时间戳，精准锚定每一句话的声波时间槽。
+   - **Step 4 中文网感文案重构 (`script`)**：针对 2026 短视频受众，短句干脆、突出冲突、去掉老外废话套话。Web 端提供**双语对照交互表格**，支持随时在线修改中文配音台词并一键持久化。支持切换微软神经语音音色（云希/晓晓/云健/东北老铁）。
+   - **Step 5 Edge-TTS 自适应微加速合成 (`synthesize`)**：采用自研 `atempo` 算法自适应吻合原视频各句时长，自动微加速或微缩，确保每一句中文配音咬合原片口型与画面节奏，无生硬断层。
+   - **Step 6 EBU R128 (-14.8 LUFS) 工业级母带混音 (`mix`)**：现场伴奏衰减至 35% 避让人声，AI 中文解说提升至 135%，动态压限至行业通用的 -14.8 LUFS，保证手机扬声器下人声通透洪亮、背景音沉浸真实。
+   - **Step 7 1080P 成片渲染与剪映 Pro 4 轨道工程直出 (`render`)**：嵌合 ASS 高对比智能花字字幕压制 1080P MP4 成片；同时基于 `pyJianYingDraft` 自动在 Windows 剪映目录生成 4 轨独立草稿（视频原画轨、纯净伴奏轨、中文配音轨、花字字幕轨），打开剪映电脑版即可随时二次精修！
+   - **⚡ 一键自动跑通**：支持单个按钮连续触发 7 步流水线，也可由外部 Agent 全权端到端代劳。
+
+3. **原生 MCP (Model Context Protocol) 架构**：
+   - Hotdesk 不仅是 Web 页面，更是一个标准的高性能 MCP 服务。
+   - 任何 AI 客户端（Cursor、Claude Code、Windsurf、Antigravity、Codex）只需在配置文件中挂载 `node src/mcp.mjs`，即可获得全套视频二创与图文创作能力：
+     - `list_video_projects`, `create_video_project`, `get_video_project`
+     - `separate_video_audio`, `transcribe_video_audio`, `rewrite_video_script`
+     - `synthesize_video_voiceover`, `mix_video_audio`, `render_video_master`, `delete_video_project`
+   - **外部 Agent 与 Web 看板共用底层同一份 SQLite 数据库与磁盘媒体缓存**：Agent 在终端或后台执行，Web 前端毫秒级同步渲染进度。
+
+---
 
 ## v0.3.2 更新（2026-10-01）：二次分析模式 + 国外对照三句法
 

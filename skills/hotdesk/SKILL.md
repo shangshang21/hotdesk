@@ -49,6 +49,16 @@ When the user supplies real platform analytics, associate platform, angle, title
 - Choose 1–5 angles with 5–10 attention-grabbing titles each (question, take-a-side, twist, "netizens found…", number/detail). Titles may be dramatic in tone but must not invent events. Respect a user-selected angle.
 - Default to the three platform profiles above. Fact and opinion blocks need refs; analysis/transition blocks may omit refs but must not add new facts. Keep audit notes separate from publishable text.
 - `review` checks hard errors only: names, numbers, dates, quotes vs sources; netizen claims stated as fact; invented events; personal/regional/gender attacks or high-risk sensitive content. Hard errors are `error` → `revise`/`blocked`; minor issues are `warning` and may still pass. Use `info` to suggest punchier titles and openings.
-- Release a lease when pausing or failing. The web UI supports human editing and invalidates downstream artifacts; old versions remain traceable.
+## Video Studio (短视频二创工坊 MCP 工作流)
+
+Hotdesk 提供全套针对海外科技/游戏/演讲短视频的汉化二创自动化生产线与 MCP 工具：
+1. `create_video_project({ title, url, file_path })`: 创建视频二创项目（传入本地 MP4 文件路径或视频源 URL）。
+2. `get_video_project({ project_id })`: 获取项目当前工序、元数据与产物路径。
+3. `separate_video_audio({ project_id })`: 调用 Demucs v4 彻底分离人声与现场伴奏/音效（路线 A：剥离消灭外语原声，提取纯伴奏/掌声/环境音）。
+4. `transcribe_video_audio({ project_id })`: 调用 Faster-Whisper 毫秒级提取原始台词与绝对起止时间戳。
+5. `rewrite_video_script({ project_id, segments: [{ start, end, en_text, zh_text }] })`: 写入/更新符合国内短视频网感的中文解说词（句式短促、信息密集、突出戏剧冲突）。
+6. `synthesize_video_voiceover({ project_id, voice })`: 调用 Edge-TTS 生成微软神经语音配音，并通过 `atempo` 算法自适应微加速嵌合原片时间轴。
+7. `mix_video_audio({ project_id })`: 执行 EBU R128 (-14.8 LUFS) 广播级母带压限混音（伴奏衰减至 35%，解说提升至 135%）。
+8. `render_video_master({ project_id, mask_orig_sub })`: 压制 1080P MP4 母带成片，并自动在剪映目录导出 4 轨独立草稿工程（视频原画、纯净伴奏、中文配音、智能字幕）。
 
 Use the root README for setup and supported adapter boundaries. The stage instructions and `output_example` returned by `get_task` are the maintained output contracts; do not duplicate a competing schema.

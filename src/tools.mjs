@@ -4,6 +4,7 @@ import { context, submit, exportMarkdown } from './pipeline.mjs';
 import {collectImage,buildPublishPack,imagesFor} from './publish-pack.mjs';
 import {verifySources} from './verify.mjs';
 import {rulesFull} from './rules.mjs';
+import { createProject, separateAudio, transcribeAudio, updateScript, synthesizeVoiceover, mixAudio, renderAndExport } from './video-pipeline.mjs';
 const stages=z.enum(['editor','research','opinion','benchmark','angles','write','review']);
 const id=z.string().min(1);
 const source=z.object({platform:z.string().min(1),kind:z.enum(['article','post','comment','hotlist','benchmark']),title:z.string().default(''),body:z.string().max(100000),url:z.string().default(''),external_id:z.string().optional(),published_at:z.string().optional(),metadata:z.record(z.unknown()).optional()});
@@ -27,6 +28,18 @@ export const toolDefinitions={
   collect_image:{description:'先打开实际图片，再从原文正文保存。image_type 区分照片/截图/图表/文字卡片，seen_description 写实际画面，article_relation 写与文章哪部分相关；文字卡片还须写 visible_text 和说明性图注，不能冒充实景。图片更新后重新审稿并逐张填写 image_checks。',schema:{topic_id:id,source_id:id,url:z.string().url(),image_type:z.enum(['photo','screenshot','chart','text_card']),article_relation:z.string().min(5).max(1000),visible_text:z.string().max(1000).optional(),seen_description:z.string().min(10).max(500),caption:z.string().min(1).max(500),credit:z.string().min(1).max(200),usage_note:z.string().min(1).max(1000),verified_scene:z.literal(true),placement:z.enum(['cover','detail','result']),platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3)}},
   list_images:{description:'查看本话题真实图片文件及来源记录。',schema:{topic_id:id}},
   export_publish_pack:{description:'导出三平台标题/纯正文/配图/插图说明的文件夹和ZIP；缺图、缺稿或审稿未过会标待补全。ready_for_handoff不等于人工确认或已发布。',schema:{topic_id:id,platforms:z.array(z.enum(['toutiao','penguin','baijiahao'])).min(1).max(3).refine(a=>new Set(a).size===a.length,'平台不能重复').optional()}},
+  
+  // ================= 视频创作工坊工具族 (Video Studio MCP Tools) =================
+  list_video_projects:{description:'列出所有短视频二创项目及当前进展工序',schema:{}},
+  create_video_project:{description:'新建短视频二创项目。支持传入公开视频链接或本地 MP4 文件路径。',schema:{title:z.string().min(1).max(300),url:z.string().optional(),file_path:z.string().optional(),route:z.enum(['A','B']).default('A'),voice:z.string().default('zh-CN-YunxiNeural')}},
+  get_video_project:{description:'查看短视频项目详情、各阶段产物路径、台词字幕与剪映工程',schema:{project_id:id}},
+  separate_video_audio:{description:'调用 Demucs v4 执行 AI 人声与伴奏分离（路线 A：剥离消灭外语原声，提取纯伴奏/掌声/环境音）',schema:{project_id:id}},
+  transcribe_video_audio:{description:'调用 Faster-Whisper 执行毫秒级语音识别，提取原始台词与时间戳',schema:{project_id:id}},
+  rewrite_video_script:{description:'更新/写入短视频高燃网感二创中文解说台词',schema:{project_id:id,segments:z.array(z.object({start:z.number(),end:z.number(),en_text:z.string().optional(),zh_text:z.string()}))}},
+  synthesize_video_voiceover:{description:'调用 Edge-TTS 生成微软神经语音中文配音切片，并以 atempo 自适应嵌合原片时间槽',schema:{project_id:id,voice:z.string().optional()}},
+  mix_video_audio:{description:'执行 EBU R128 (-14.8 LUFS) 广播级音频混音，纯净伴奏垫底 + 洪亮中文解说',schema:{project_id:id}},
+  render_video_master:{description:'压制 1080P MP4 母带成片（可选毛玻璃遮罩覆盖原生硬字幕），并同步生成剪映 4 轨本地工程',schema:{project_id:id,mask_orig_sub:z.boolean().default(false)}},
+  delete_video_project:{description:'删除一个短视频项目及其关联本地缓存',schema:{project_id:id}},
 };
 export async function tracked(store,kind,topic,input,fn){
   const job=store.job(kind,topic,input);try{const r=await fn();store.finishJob(job,r);return {job_id:job,...r};}catch(e){store.finishJob(job,null,e.message);throw e;}
@@ -55,5 +68,17 @@ export async function callTool(store,name,args={},ctx={}){
     case 'collect_image':return tracked(store,name,a.topic_id,a,()=>collectImage(store,a.topic_id,a));
     case 'list_images':return {images:imagesFor(store,a.topic_id)};
     case 'export_publish_pack':return buildPublishPack(store,a.topic_id,a.platforms);
+
+    // Video Studio tools
+    case 'list_video_projects':return {projects:store.listVideoProjects()};
+    case 'create_video_project':return tracked(store,name,null,a,()=>createProject(store,{title:a.title,source_url:a.url,video_path:a.file_path,route:a.route,voice:a.voice}));
+    case 'get_video_project':return store.getVideoProject(a.project_id);
+    case 'separate_video_audio':return tracked(store,name,a.project_id,a,()=>separateAudio(store,a.project_id));
+    case 'transcribe_video_audio':return tracked(store,name,a.project_id,a,()=>transcribeAudio(store,a.project_id));
+    case 'rewrite_video_script':return updateScript(store,a.project_id,a.segments);
+    case 'synthesize_video_voiceover':return tracked(store,name,a.project_id,a,()=>synthesizeVoiceover(store,a.project_id,a.voice));
+    case 'mix_video_audio':return tracked(store,name,a.project_id,a,()=>mixAudio(store,a.project_id));
+    case 'render_video_master':return tracked(store,name,a.project_id,a,()=>renderAndExport(store,a.project_id,{mask_orig_sub:a.mask_orig_sub}));
+    case 'delete_video_project':return store.deleteVideoProject(a.project_id);
   }
 }

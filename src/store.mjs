@@ -37,7 +37,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,topic_id TEXT,kind TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,input TEXT NOT NULL,result TEXT,error TEXT);
       CREATE TABLE IF NOT EXISTS claims(id TEXT PRIMARY KEY,topic_id TEXT NOT NULL,stage TEXT NOT NULL,actor TEXT NOT NULL,basis TEXT NOT NULL,expires_at TEXT NOT NULL,status TEXT NOT NULL);
-      CREATE INDEX IF NOT EXISTS sources_topic ON sources(topic_id); CREATE INDEX IF NOT EXISTS artifacts_topic ON artifacts(topic_id,stage,valid);
+      CREATE TABLE IF NOT EXISTS video_projects(id TEXT PRIMARY KEY,title TEXT NOT NULL,source_url TEXT,video_path TEXT,status TEXT NOT NULL DEFAULT 'created',route TEXT NOT NULL DEFAULT 'A',voice TEXT NOT NULL DEFAULT 'zh-CN-YunxiNeural',duration REAL DEFAULT 0,width INTEGER DEFAULT 0,height INTEGER DEFAULT 0,stage TEXT NOT NULL DEFAULT 'ingest',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,data TEXT NOT NULL DEFAULT '{}');
+      CREATE INDEX IF NOT EXISTS sources_topic ON sources(topic_id); CREATE INDEX IF NOT EXISTS artifacts_topic ON artifacts(topic_id,stage,valid); CREATE INDEX IF NOT EXISTS idx_video_projects_updated ON video_projects(updated_at);
       PRAGMA user_version=1;`);
   }
   close() { this.db.close(); }
@@ -157,4 +158,45 @@ export class Store {
   job(kind,topic,input) {const id=uid('j'),t=now();this.db.prepare('INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)').run(id,topic,kind,'running',t,t,JSON.stringify(input),null,null);return id;}
   finishJob(id,result,error) {const status=error?'failed':result?.status==='needs_browser'?'needs_input':result?.status==='partial'?'partial':result?.status==='empty'?'empty':'completed';this.db.prepare('UPDATE jobs SET status=?,updated_at=?,result=?,error=? WHERE id=?').run(status,now(),result?JSON.stringify(result):null,error||null,id);}
   jobs() {return this.db.prepare('SELECT * FROM jobs ORDER BY created_at DESC LIMIT 50').all().map(j=>({...j,input:JSON.parse(j.input),result:j.result?JSON.parse(j.result):null}));}
+
+  createVideoProject({ title, source_url = '', video_path = '', route = 'A', voice = 'zh-CN-YunxiNeural', width = 0, height = 0, duration = 0, metadata = {} }) {
+    title = normalize(title);
+    if (!title) throw new Error('视频项目标题不能为空');
+    const id = uid('vp');
+    const t = now();
+    const data = JSON.stringify(metadata);
+    this.db.prepare('INSERT INTO video_projects(id, title, source_url, video_path, status, route, voice, duration, width, height, stage, created_at, updated_at, data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(id, title, source_url, video_path, 'created', route, voice, duration, width, height, 'ingest', t, t, data);
+    this.event(null, 'video_project_created', { id, title });
+    return this.getVideoProject(id);
+  }
+  getVideoProject(id) {
+    const row = this.db.prepare('SELECT * FROM video_projects WHERE id=?').get(id);
+    if (!row) throw new Error(`视频项目不存在: ${id}`);
+    return {
+      ...row,
+      data: JSON.parse(row.data || '{}')
+    };
+  }
+  updateVideoProject(id, patch) {
+    const current = this.getVideoProject(id);
+    const dataObj = patch.data !== undefined ? patch.data : (patch.metadata !== undefined ? patch.metadata : current.data);
+    const updated = { ...current, ...patch, data: dataObj, updated_at: now() };
+    const dataStr = JSON.stringify(dataObj || {});
+    this.db.prepare('UPDATE video_projects SET title=?, source_url=?, video_path=?, status=?, route=?, voice=?, duration=?, width=?, height=?, stage=?, updated_at=?, data=? WHERE id=?')
+      .run(updated.title, updated.source_url, updated.video_path, updated.status, updated.route, updated.voice, updated.duration, updated.width, updated.height, updated.stage, updated.updated_at, dataStr, id);
+    this.event(null, 'video_project_updated', { id, stage: updated.stage, status: updated.status });
+    return this.getVideoProject(id);
+  }
+  listVideoProjects() {
+    return this.db.prepare('SELECT * FROM video_projects ORDER BY updated_at DESC LIMIT 100').all().map(r => ({
+      ...r,
+      data: JSON.parse(r.data || '{}')
+    }));
+  }
+  deleteVideoProject(id) {
+    this.db.prepare('DELETE FROM video_projects WHERE id=?').run(id);
+    this.event(null, 'video_project_deleted', { id });
+    return { deleted: true, id };
+  }
 }
